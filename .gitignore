@@ -37,12 +37,33 @@ venv/
 *.log
 
 # -----------------------------
-# Model Files
-# -----------------------------
-saved_models/*.pth
-saved_models/*.pt
-
-# -----------------------------
 # Temporary Files
 # -----------------------------
 *.tmp
+
+# -----------------------------
+# Datasets (Don't upload large datasets)
+# -----------------------------
+datasets/
+
+# -----------------------------
+# Generated Outputs
+# -----------------------------
+outputs/audio/
+outputs/extracted_frames/
+outputs/face_mesh/
+outputs/lip_landmarks/
+outputs/lip_coordinates/
+outputs/mfcc/
+outputs/synchronized/
+outputs/sequences/
+
+# -----------------------------
+# Trained Models
+# -----------------------------
+saved_models/
+
+# -----------------------------
+# Python Cache
+# -----------------------------
+*.pyc
