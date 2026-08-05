@@ -1,6 +1,11 @@
 import subprocess
 from pathlib import Path
 
+from configs.config import (
+    SAMPLE_VIDEO_ROOT,
+    AUDIO_OUTPUT
+)
+
 
 def extract_audio(video_path: Path, output_audio: Path):
     """
@@ -77,8 +82,7 @@ def process_all_videos(input_folder: Path, output_folder: Path):
 
 if __name__ == "__main__":
 
-    input_folder = Path("data/sample_videos")
-
-    output_folder = Path("outputs/audio")
-
-    process_all_videos(input_folder, output_folder)
+    process_all_videos(
+        SAMPLE_VIDEO_ROOT,
+        AUDIO_OUTPUT
+    )

@@ -1,10 +1,16 @@
 import numpy as np
 from pathlib import Path
 
-from utils import (
+from .utils import (
     load_lip_coordinates,
     load_mfcc,
     save_feature_vector
+)
+
+from configs.config import (
+    LIP_COORDINATE_OUTPUT,
+    MFCC_OUTPUT,
+    SYNCHRONIZED_OUTPUT
 )
 
 
@@ -60,9 +66,9 @@ def synchronize_video(
 
 def process_all_videos():
 
-    lip_root = Path("outputs/lip_coordinates")
-    mfcc_root = Path("outputs/mfcc")
-    output_root = Path("outputs/synchronized")
+    lip_root = LIP_COORDINATE_OUTPUT
+    mfcc_root = MFCC_OUTPUT
+    output_root = SYNCHRONIZED_OUTPUT
 
     total_frames = 0
     total_videos = 0

@@ -3,10 +3,16 @@ from pathlib import Path
 
 # ---------------- CONFIG ---------------- #
 
-SYNC_ROOT = Path("outputs/synchronized")
-OUTPUT_ROOT = Path("outputs/sequences")
+from configs.config import (
+    SYNCHRONIZED_OUTPUT,
+    SEQUENCE_OUTPUT,
+    SEQUENCE_LENGTH
+)
 
-SEQUENCE_LENGTH = 30
+SYNC_ROOT = SYNCHRONIZED_OUTPUT
+
+OUTPUT_ROOT = SEQUENCE_OUTPUT
+
 STRIDE = 1
 
 # ---------------------------------------- #

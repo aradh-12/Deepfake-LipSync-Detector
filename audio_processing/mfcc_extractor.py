@@ -2,6 +2,11 @@ import librosa
 import numpy as np
 from pathlib import Path
 
+from configs.config import (
+    AUDIO_OUTPUT,
+    MFCC_OUTPUT
+)
+
 
 def extract_mfcc(audio_file: Path, output_file: Path):
     """
@@ -60,8 +65,7 @@ def process_all_audio(input_root: Path, output_root: Path):
 
 if __name__ == "__main__":
 
-    input_root = Path("outputs/audio")
-
-    output_root = Path("outputs/mfcc")
-
-    process_all_audio(input_root, output_root)
+    process_all_audio(
+        AUDIO_OUTPUT,
+        MFCC_OUTPUT
+    )

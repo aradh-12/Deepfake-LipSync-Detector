@@ -2,6 +2,11 @@ import cv2
 import mediapipe as mp
 from pathlib import Path
 
+from configs.config import (
+    FRAMES_OUTPUT,
+    FACE_MESH_OUTPUT
+)
+
 # -----------------------------
 # MediaPipe Initialization
 # -----------------------------
@@ -95,8 +100,7 @@ def process_all_videos(input_root: Path, output_root: Path):
 
 if __name__ == "__main__":
 
-    input_root = Path("outputs/extracted_frames")
-
-    output_root = Path("outputs/face_mesh")
-
-    process_all_videos(input_root, output_root)
+    process_all_videos(
+        FRAMES_OUTPUT,
+        FACE_MESH_OUTPUT
+    )

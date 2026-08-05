@@ -3,6 +3,12 @@ import mediapipe as mp
 import csv
 from pathlib import Path
 
+from configs.config import (
+    FRAMES_OUTPUT,
+    LIP_LANDMARK_OUTPUT,
+    LIP_COORDINATE_OUTPUT
+)
+
 # -----------------------------
 # MediaPipe Initialization
 # -----------------------------
@@ -60,11 +66,9 @@ def process_frame(
 
                 cv2.circle(image, (x, y), 2, (0, 255, 0), -1)
 
-        # Save landmark image
         output_image.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(output_image), image)
 
-        # Save coordinates as CSV
         csv_output.parent.mkdir(parents=True, exist_ok=True)
 
         with open(csv_output, "w", newline="") as file:
@@ -89,7 +93,7 @@ def process_all_videos(input_root: Path, output_root: Path):
         total_videos += 1
 
         output_folder = output_root / video_folder.name
-        csv_folder = Path("outputs/lip_coordinates") / video_folder.name
+        csv_folder = LIP_COORDINATE_OUTPUT / video_folder.name
 
         frame_files = sorted(video_folder.glob("*.jpg"))
 
@@ -120,7 +124,7 @@ def process_all_videos(input_root: Path, output_root: Path):
 
 if __name__ == "__main__":
 
-    input_root = Path("outputs/extracted_frames")
-    output_root = Path("outputs/lip_landmarks")
-
-    process_all_videos(input_root, output_root)
+    process_all_videos(
+        FRAMES_OUTPUT,
+        LIP_LANDMARK_OUTPUT
+    )

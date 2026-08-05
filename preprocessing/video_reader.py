@@ -1,6 +1,10 @@
 import cv2
 from pathlib import Path
 
+from configs.config import (
+    SAMPLE_VIDEO_ROOT
+)
+
 
 def read_video(video_path: Path):
     """Read a single video and print its information."""
@@ -47,5 +51,7 @@ def process_all_videos(folder_path: Path):
 
 
 if __name__ == "__main__":
-    input_folder = Path("data/sample_videos")
-    process_all_videos(input_folder)
+
+    process_all_videos(
+        SAMPLE_VIDEO_ROOT
+    )

@@ -1,6 +1,11 @@
 import cv2
 from pathlib import Path
 
+from configs.config import (
+    SAMPLE_VIDEO_ROOT,
+    FRAMES_OUTPUT
+)
+
 
 def extract_frames(video_path: Path, output_folder: Path):
     """Extract all frames from a single video."""
@@ -65,8 +70,7 @@ def process_all_videos(input_folder: Path, output_root: Path):
 
 if __name__ == "__main__":
 
-    input_folder = Path("data/sample_videos")
-
-    output_root = Path("outputs/extracted_frames")
-
-    process_all_videos(input_folder, output_root)
+    process_all_videos(
+        SAMPLE_VIDEO_ROOT,
+        FRAMES_OUTPUT
+    )
