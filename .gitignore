@@ -60,7 +60,6 @@ outputs/
 # Trained Models
 # ============================
 
-models/*.keras
 saved_models/
 
 # ============================
@@ -68,3 +67,6 @@ saved_models/
 # ============================
 
 *.pyc
+
+data/sample_videos_fakeav/
+*.save

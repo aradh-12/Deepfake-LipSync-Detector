@@ -16,10 +16,13 @@ def extract_mfcc(audio_file: Path, output_file: Path):
     y, sr = librosa.load(audio_file, sr=16000)
 
     mfcc = librosa.feature.mfcc(
-        y=y,
-        sr=sr,
-        n_mfcc=13
-    )
+    y=y,
+    sr=sr,
+    n_mfcc=13,
+    n_fft=2048,
+    hop_length=512,
+    center=True
+)
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
 

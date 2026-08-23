@@ -28,7 +28,7 @@ AUDIO_OUTPUT = OUTPUT_ROOT / "audio"
 
 MFCC_OUTPUT = OUTPUT_ROOT / "mfcc"
 
-SYNCHRONIZED_OUTPUT = OUTPUT_ROOT / "synchronized"
+SYNCHRONIZED_OUTPUT = OUTPUT_ROOT / "synchronized_aligned"
 
 SEQUENCE_OUTPUT = OUTPUT_ROOT / "sequences"
 

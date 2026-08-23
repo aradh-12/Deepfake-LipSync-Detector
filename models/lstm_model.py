@@ -1,4 +1,5 @@
 import tensorflow as tf
+
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import (
     Input,
@@ -9,51 +10,83 @@ from tensorflow.keras.layers import (
 )
 
 
+SEQUENCE_LENGTH = 30
+FEATURE_SIZE = 173
+
+
 def build_lstm_model(
-    sequence_length=30,
-    feature_size=93
+    sequence_length=SEQUENCE_LENGTH,
+    feature_size=FEATURE_SIZE
 ):
     """
-    Build LSTM model for deepfake detection.
+    Regularized LSTM for multimodal lip-sync
+    anomaly detection.
+
+    Input:
+        (30, 173)
+
+    Features:
+        80 lip positions
+        80 lip velocities
+        13 MFCC features
+
+    Model V2:
+        Stronger regularization to reduce overfitting.
     """
 
     model = Sequential([
 
-        Input(shape=(sequence_length, feature_size)),
-
-        LSTM(
-            128,
-            return_sequences=True
+        Input(
+            shape=(
+                sequence_length,
+                feature_size
+            )
         ),
-        BatchNormalization(),
-        Dropout(0.3),
 
         LSTM(
             64,
-            return_sequences=False
+            return_sequences=False,
+            dropout=0.25,
+            recurrent_dropout=0.10
         ),
+
         BatchNormalization(),
-        Dropout(0.3),
 
         Dense(
             32,
             activation="relu"
         ),
 
-        Dropout(0.2),
+        Dropout(0.35),
 
         Dense(
             1,
             activation="sigmoid"
         )
-
     ])
 
     model.compile(
-        optimizer="adam",
+
+        optimizer=tf.keras.optimizers.Adam(
+            learning_rate=0.0002
+        ),
+
         loss="binary_crossentropy",
+
         metrics=[
-            "accuracy"
+            "accuracy",
+
+            tf.keras.metrics.Precision(
+                name="precision"
+            ),
+
+            tf.keras.metrics.Recall(
+                name="recall"
+            ),
+
+            tf.keras.metrics.AUC(
+                name="auc"
+            )
         ]
     )
 

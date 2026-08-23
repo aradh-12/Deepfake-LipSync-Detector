@@ -1,19 +1,17 @@
 import cv2
 from pathlib import Path
 
-from configs.config import (
-    SAMPLE_VIDEO_ROOT,
-    FRAMES_OUTPUT
-)
+from utils.multidataset_manager import get_fakeavceleb
+
+OUTPUT_ROOT = Path("outputs/extracted_frames")
 
 
 def extract_frames(video_path: Path, output_folder: Path):
-    """Extract all frames from a single video."""
 
     cap = cv2.VideoCapture(str(video_path))
 
     if not cap.isOpened():
-        print(f"❌ Unable to open {video_path.name}")
+        print(f"❌ Unable to open {video_path}")
         return 0
 
     output_folder.mkdir(parents=True, exist_ok=True)
@@ -21,56 +19,61 @@ def extract_frames(video_path: Path, output_folder: Path):
     frame_count = 0
 
     while True:
+
         success, frame = cap.read()
 
         if not success:
             break
 
-        frame_count += 1
-
         frame_path = output_folder / f"frame_{frame_count:04d}.jpg"
 
         cv2.imwrite(str(frame_path), frame)
 
-    cap.release()
+        frame_count += 1
 
-    print(f"✅ {video_path.name} -> {frame_count} frames extracted.")
+    cap.release()
 
     return frame_count
 
 
-def process_all_videos(input_folder: Path, output_root: Path):
-    """Process all MP4 videos inside the input folder."""
+def process_videos():
 
-    videos = sorted(input_folder.glob("*.mp4"))
+    dataset = [
+    item
+    for item in get_fakeavceleb(limit=50)
+    if item[1] == 0
+]
 
-    if not videos:
-        print("❌ No MP4 videos found.")
-        return
+    print(f"\nProcessing {len(dataset)} videos...\n")
 
     total_frames = 0
 
-    print(f"\nFound {len(videos)} video(s).\n")
+    for video, label in dataset:
 
-    for video in videos:
+        dataset_name = video.parts[1]
 
-        video_name = video.stem
+        folder_name = (
+            dataset_name
+            + "_"
+            + video.parent.name
+            + "_"
+            + video.stem
+        )
 
-        output_folder = output_root / video_name
+        output_folder = OUTPUT_ROOT / folder_name
 
         frames = extract_frames(video, output_folder)
 
         total_frames += frames
 
-    print("\n==============================")
-    print(f"Videos Processed : {len(videos)}")
-    print(f"Total Frames     : {total_frames}")
-    print("==============================")
+        print(f"{folder_name}")
+        print(f"Frames : {frames}")
+        print("-" * 40)
+
+    print("\nFinished")
+    print("Videos :", len(dataset))
+    print("Frames :", total_frames)
 
 
 if __name__ == "__main__":
-
-    process_all_videos(
-        SAMPLE_VIDEO_ROOT,
-        FRAMES_OUTPUT
-    )
+    process_videos()

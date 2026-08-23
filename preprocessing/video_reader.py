@@ -1,57 +1,42 @@
 import cv2
 from pathlib import Path
 
-from configs.config import (
-    SAMPLE_VIDEO_ROOT
-)
+from utils.dataset_manager import get_all_videos
 
 
-def read_video(video_path: Path):
-    """Read a single video and print its information."""
-
+def read_video(video_path: Path, label: int):
     cap = cv2.VideoCapture(str(video_path))
 
     if not cap.isOpened():
-        print(f"❌ Unable to open {video_path.name}")
+        print(f"Cannot open {video_path.name}")
         return
 
     fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    duration = total_frames / fps if fps > 0 else 0
-
-    print("=" * 50)
-    print(f"Video          : {video_path.name}")
-    print(f"FPS            : {fps:.2f}")
-    print(f"Resolution     : {width} x {height}")
-    print(f"Total Frames   : {total_frames}")
-    print(f"Duration       : {duration:.2f} seconds")
-    print("=" * 50)
+    print("--------------------------------")
+    print(f"Video : {video_path.name}")
+    print(f"Label : {'Real' if label == 0 else 'Fake'}")
+    print(f"FPS   : {fps}")
+    print(f"Frames: {frames}")
 
     cap.release()
 
 
-def process_all_videos(folder_path: Path):
-    """Read every MP4 video in the folder."""
+def process_videos(limit=10):
 
-    videos = sorted(folder_path.glob("*.mp4"))
+    dataset = get_all_videos()
 
-    if not videos:
-        print("❌ No MP4 videos found.")
-        return
+    print(f"\nTotal videos in dataset : {len(dataset)}\n")
 
-    print(f"\nFound {len(videos)} video(s).\n")
+    real = [x for x in dataset if x[1] == 0][:5]
+    fake = [x for x in dataset if x[1] == 1][:5]
 
-    for video in videos:
-        read_video(video)
+    dataset = real + fake
 
-    print(f"\n✅ Processed {len(videos)} video(s).")
+    for video, label in dataset:
+        read_video(video, label)
 
 
 if __name__ == "__main__":
-
-    process_all_videos(
-        SAMPLE_VIDEO_ROOT
-    )
+    process_videos()

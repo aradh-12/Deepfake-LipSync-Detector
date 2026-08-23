@@ -1,19 +1,10 @@
 import subprocess
 from pathlib import Path
 
-from utils.multidataset_manager import get_fakeavceleb
+from utils.multidataset_manager import get_fakeavceleb_unseen
 
 
 AUDIO_OUTPUT = Path("outputs/audio")
-
-
-def get_video_name(video):
-
-    return (
-        f"FakeAVCeleb_"
-        f"{video.parent.name}_"
-        f"{video.stem}"
-    )
 
 
 def extract_audio(video_path: Path, output_audio: Path):
@@ -55,11 +46,20 @@ def extract_audio(video_path: Path, output_audio: Path):
     return result.returncode == 0
 
 
-def process_videos():
+def get_video_name(video):
 
-    # Get 50 FakeAVCeleb development videos
-    dataset = get_fakeavceleb(
-        limit=50
+    return (
+        f"FakeAVCeleb_"
+        f"{video.parent.name}_"
+        f"{video.stem}"
+    )
+
+
+def process_unseen_videos():
+
+    dataset = get_fakeavceleb_unseen(
+        real_count=25,
+        fake_count=25
     )
 
     success = 0
@@ -67,19 +67,30 @@ def process_videos():
 
     print()
     print("==============================")
-    print("EXTRACTING AUDIO")
+    print("EXTRACTING UNSEEN AUDIO")
     print("==============================")
     print(
         "Videos found:",
         len(dataset)
     )
+
+    real = sum(
+        label == 0
+        for _, label in dataset
+    )
+
+    fake = sum(
+        label == 1
+        for _, label in dataset
+    )
+
+    print("Real:", real)
+    print("Fake:", fake)
     print()
 
     for video, label in dataset:
 
-        video_name = get_video_name(
-            video
-        )
+        video_name = get_video_name(video)
 
         output_audio = (
             AUDIO_OUTPUT
@@ -87,7 +98,6 @@ def process_videos():
             / f"{video_name}.wav"
         )
 
-        # Don't extract again if already present
         if output_audio.exists():
 
             print(
@@ -99,7 +109,8 @@ def process_videos():
             continue
 
         print(
-            f"Processing: {video_name}"
+            f"Processing: {video_name} | "
+            f"{'Real' if label == 0 else 'Fake'}"
         )
 
         if extract_audio(
@@ -123,27 +134,23 @@ def process_videos():
 
     print()
     print("==============================")
-    print("AUDIO EXTRACTION COMPLETE")
+    print("UNSEEN AUDIO EXTRACTION COMPLETE")
     print("==============================")
-
     print(
         "Videos processed:",
         len(dataset)
     )
-
     print(
         "Successful:",
         success
     )
-
     print(
         "Failed:",
         failed
     )
-
     print("==============================")
 
 
 if __name__ == "__main__":
 
-    process_videos()
+    process_unseen_videos()

@@ -1,32 +1,77 @@
 import cv2
 import mediapipe as mp
+import csv
 from pathlib import Path
 
-from configs.config import (
-    FRAMES_OUTPUT,
-    FACE_MESH_OUTPUT
-)
+INPUT_ROOT = Path("outputs/extracted_frames")
+LANDMARK_OUTPUT = Path("outputs/lip_landmarks")
+CSV_OUTPUT = Path("outputs/lip_coordinates")
 
-# -----------------------------
-# MediaPipe Initialization
-# -----------------------------
 mp_face_mesh = mp.solutions.face_mesh
-mp_drawing = mp.solutions.drawing_utils
-mp_drawing_styles = mp.solutions.drawing_styles
+
+LIP_LANDMARKS = [
+    61,146,91,181,84,17,314,405,
+    321,375,291,185,40,39,37,0,
+    267,269,270,409,78,95,88,178,
+    87,14,317,402,318,324,308,
+    191,80,81,82,13,312,311,310,
+    415
+]
 
 
-def process_frame(input_image: Path, output_image: Path):
-    """
-    Detect face mesh on a single frame.
-    Returns True if a face was detected.
-    """
+def process_frame(face_mesh, input_image, output_image, csv_output):
 
     image = cv2.imread(str(input_image))
 
     if image is None:
         return False
 
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    results = face_mesh.process(rgb)
+
+    if not results.multi_face_landmarks:
+        return False
+
+    h, w, _ = image.shape
+
+    coordinates = []
+
+    for face in results.multi_face_landmarks:
+
+        for idx in LIP_LANDMARKS:
+
+            point = face.landmark[idx]
+
+            x = int(point.x * w)
+            y = int(point.y * h)
+
+            coordinates.append([idx, x, y])
+
+            cv2.circle(image, (x, y), 2, (0, 255, 0), -1)
+
+    output_image.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(output_image), image)
+
+    csv_output.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(csv_output, "w", newline="") as f:
+
+        writer = csv.writer(f)
+        writer.writerow(["Landmark", "X", "Y"])
+        writer.writerows(coordinates)
+
+    return True
+
+
+def process_videos():
+
+    folders = sorted(INPUT_ROOT.iterdir())
+
+    total_frames = 0
+    total_detected = 0
+
+    print(f"\nFound {len(folders)} videos.\n")
 
     with mp_face_mesh.FaceMesh(
         static_image_mode=True,
@@ -35,72 +80,44 @@ def process_frame(input_image: Path, output_image: Path):
         min_detection_confidence=0.5
     ) as face_mesh:
 
-        results = face_mesh.process(rgb_image)
+        for folder in folders:
 
-        if not results.multi_face_landmarks:
-            return False
+            if not folder.is_dir():
+                continue
 
-        for landmarks in results.multi_face_landmarks:
+            print(f"Processing : {folder.name}")
 
-            mp_drawing.draw_landmarks(
-                image=image,
-                landmark_list=landmarks,
-                connections=mp_face_mesh.FACEMESH_TESSELATION,
-                landmark_drawing_spec=None,
-                connection_drawing_spec=mp_drawing_styles.get_default_face_mesh_tesselation_style()
-            )
+            landmark_folder = LANDMARK_OUTPUT / folder.name
+            csv_folder = CSV_OUTPUT / folder.name
 
-        output_image.parent.mkdir(parents=True, exist_ok=True)
+            frames = sorted(folder.glob("*.jpg"))
 
-        cv2.imwrite(str(output_image), image)
+            detected = 0
 
-        return True
+            for frame in frames:
 
+                output_image = landmark_folder / frame.name
+                csv_output = csv_folder / frame.with_suffix(".csv").name
 
-def process_all_videos(input_root: Path, output_root: Path):
+                if process_frame(
+                    face_mesh,
+                    frame,
+                    output_image,
+                    csv_output
+                ):
+                    detected += 1
 
-    total_videos = 0
-    total_frames = 0
-    total_faces = 0
+            total_frames += len(frames)
+            total_detected += detected
 
-    for video_folder in sorted(input_root.iterdir()):
+            print(f"Frames : {len(frames)}")
+            print(f"Lips   : {detected}")
+            print("-" * 40)
 
-        if not video_folder.is_dir():
-            continue
-
-        total_videos += 1
-
-        output_folder = output_root / video_folder.name
-
-        frame_files = sorted(video_folder.glob("*.jpg"))
-
-        detected = 0
-
-        print(f"\nProcessing Video : {video_folder.name}")
-
-        for frame in frame_files:
-
-            output_image = output_folder / frame.name
-
-            if process_frame(frame, output_image):
-                detected += 1
-
-        total_frames += len(frame_files)
-        total_faces += detected
-
-        print(f"Frames           : {len(frame_files)}")
-        print(f"Faces Detected   : {detected}")
-
-    print("\n==============================")
-    print(f"Videos Processed : {total_videos}")
-    print(f"Total Frames     : {total_frames}")
-    print(f"Faces Detected   : {total_faces}")
-    print("==============================")
+    print("\nFinished")
+    print("Frames :", total_frames)
+    print("Lips   :", total_detected)
 
 
 if __name__ == "__main__":
-
-    process_all_videos(
-        FRAMES_OUTPUT,
-        FACE_MESH_OUTPUT
-    )
+    process_videos()

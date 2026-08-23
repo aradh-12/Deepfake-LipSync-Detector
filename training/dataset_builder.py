@@ -1,90 +1,452 @@
-import numpy as np
 from pathlib import Path
 
-# ---------------- CONFIG ---------------- #
+import numpy as np
 
-from configs.config import (
-    SYNCHRONIZED_OUTPUT,
-    SEQUENCE_OUTPUT,
-    SEQUENCE_LENGTH
+from utils.multidataset_manager import (
+    get_fakeavceleb_all
 )
 
-SYNC_ROOT = SYNCHRONIZED_OUTPUT
 
-OUTPUT_ROOT = SEQUENCE_OUTPUT
+# ============================================================
+# Configuration
+# ============================================================
 
-STRIDE = 1
+SEQUENCE_FOLDER = Path(
+    "outputs/synchronized_aligned"
+)
 
-# ---------------------------------------- #
+SEQUENCE_LENGTH = 30
+FEATURE_SIZE = 173
 
 
-def build_sequences(video_folder: Path):
-    """
-    Build fixed-length sequences from synchronized frame features.
-    """
+# ============================================================
+# Video Folder Name
+# ============================================================
 
-    feature_files = sorted(video_folder.glob("*.npy"))
+def get_video_folder_name(video):
 
-    if len(feature_files) < SEQUENCE_LENGTH:
-        print(f"⚠️ Not enough frames in {video_folder.name}")
-        return 0
+    return (
+        f"FakeAVCeleb_"
+        f"{video.parent.name}_"
+        f"{video.stem}"
+    )
 
-    features = []
 
-    for file in feature_files:
-        features.append(np.load(file))
+# ============================================================
+# Get ALL usable FakeAVCeleb videos
+# ============================================================
 
-    features = np.array(features, dtype=np.float32)
+def get_usable_videos():
 
-    save_folder = OUTPUT_ROOT / video_folder.name
-    save_folder.mkdir(parents=True, exist_ok=True)
+    real_videos, fake_videos = (
+        get_fakeavceleb_all()
+    )
 
-    sequence_count = 0
+    dataset = []
 
-    for start in range(
-        0,
-        len(features) - SEQUENCE_LENGTH + 1,
-        STRIDE
-    ):
+    for video in real_videos:
 
-        sequence = features[
-            start:start + SEQUENCE_LENGTH
-        ]
-
-        output_file = (
-            save_folder /
-            f"sequence_{sequence_count:04d}.npy"
+        folder = (
+            SEQUENCE_FOLDER /
+            get_video_folder_name(video)
         )
 
-        np.save(output_file, sequence)
+        if folder.exists():
 
-        sequence_count += 1
+            dataset.append(
+                (video, 0)
+            )
 
-    print(f"✅ {video_folder.name}")
-    print(f"   Sequences Created : {sequence_count}")
+    for video in fake_videos:
 
-    return sequence_count
+        folder = (
+            SEQUENCE_FOLDER /
+            get_video_folder_name(video)
+        )
+
+        if folder.exists():
+
+            dataset.append(
+                (video, 1)
+            )
+
+    return dataset
 
 
-def main():
+# ============================================================
+# Build Dataset
+# ============================================================
 
-    total_sequences = 0
-    total_videos = 0
+def build_dataset():
 
-    for video_folder in sorted(SYNC_ROOT.iterdir()):
-
-        if not video_folder.is_dir():
-            continue
-
-        total_videos += 1
-
-        total_sequences += build_sequences(video_folder)
+    dataset = get_usable_videos()
 
     print("\n==============================")
-    print(f"Videos Processed  : {total_videos}")
-    print(f"Sequences Created : {total_sequences}")
+    print("Usable FakeAVCeleb Dataset")
     print("==============================")
 
+    print(
+        "Total usable videos :",
+        len(dataset)
+    )
+
+    print(
+        "Real videos         :",
+        sum(label == 0 for _, label in dataset)
+    )
+
+    print(
+        "Fake videos         :",
+        sum(label == 1 for _, label in dataset)
+    )
+
+    print("==============================")
+
+    X = []
+    y = []
+    video_ids = []
+
+    processed_videos = 0
+    skipped_videos = 0
+
+    # ========================================================
+    # Process every usable video
+    # ========================================================
+
+    for video, label in dataset:
+
+        video_folder_name = (
+            get_video_folder_name(video)
+        )
+
+        video_folder = (
+            SEQUENCE_FOLDER /
+            video_folder_name
+        )
+
+        feature_files = sorted(
+            video_folder.glob("*.npy")
+        )
+
+        if len(feature_files) < SEQUENCE_LENGTH:
+
+            print(
+                f"⚠️ Too few features: "
+                f"{video_folder_name} "
+                f"({len(feature_files)})"
+            )
+
+            skipped_videos += 1
+            continue
+
+        features = []
+
+        for feature_file in feature_files:
+
+            try:
+
+                feature = np.load(
+                    feature_file
+                )
+
+            except Exception as error:
+
+                print(
+                    f"❌ Cannot load: "
+                    f"{feature_file}"
+                )
+
+                print(
+                    f"   Error: {error}"
+                )
+
+                continue
+
+            if feature.shape != (
+                FEATURE_SIZE,
+            ):
+
+                print(
+                    f"❌ Wrong feature shape: "
+                    f"{feature_file}"
+                )
+
+                print(
+                    f"   Expected: "
+                    f"({FEATURE_SIZE},)"
+                )
+
+                print(
+                    f"   Got: "
+                    f"{feature.shape}"
+                )
+
+                continue
+
+            features.append(
+                feature.astype(
+                    np.float32
+                )
+            )
+
+        # ----------------------------------------------------
+        # Validate features
+        # ----------------------------------------------------
+
+        if len(features) < SEQUENCE_LENGTH:
+
+            print(
+                f"⚠️ Not enough valid features: "
+                f"{video_folder_name}"
+            )
+
+            skipped_videos += 1
+            continue
+
+        features = np.asarray(
+            features,
+            dtype=np.float32
+        )
+
+        # ----------------------------------------------------
+        # Create non-overlapping sequences
+        # ----------------------------------------------------
+
+        sequence_count = (
+            len(features)
+            // SEQUENCE_LENGTH
+        )
+
+        usable_length = (
+            sequence_count
+            * SEQUENCE_LENGTH
+        )
+
+        features = features[
+            :usable_length
+        ]
+
+        for start in range(
+            0,
+            usable_length,
+            SEQUENCE_LENGTH
+        ):
+
+            sequence = features[
+                start:
+                start + SEQUENCE_LENGTH
+            ]
+
+            if sequence.shape != (
+                SEQUENCE_LENGTH,
+                FEATURE_SIZE
+            ):
+
+                continue
+
+            X.append(
+                sequence
+            )
+
+            y.append(
+                label
+            )
+
+            # IMPORTANT:
+            # Every sequence from the same video
+            # gets the same video ID.
+            video_ids.append(
+                video_folder_name
+            )
+
+        processed_videos += 1
+
+        label_name = (
+            "Real"
+            if label == 0
+            else "Fake"
+        )
+
+        print(
+            f"✅ {video_folder_name} | "
+            f"Label: {label_name} | "
+            f"Features: {len(features)} | "
+            f"Sequences: {sequence_count}"
+        )
+
+    # ========================================================
+    # Convert to NumPy
+    # ========================================================
+
+    X = np.asarray(
+        X,
+        dtype=np.float32
+    )
+
+    y = np.asarray(
+        y,
+        dtype=np.int32
+    )
+
+    video_ids = np.asarray(
+        video_ids
+    )
+
+    # ========================================================
+    # Dataset Summary
+    # ========================================================
+
+    print("\n==============================")
+    print("Dataset Built")
+    print("==============================")
+
+    print(
+        "Videos processed :",
+        processed_videos
+    )
+
+    print(
+        "Videos skipped   :",
+        skipped_videos
+    )
+
+    print(
+        "X shape          :",
+        X.shape
+    )
+
+    print(
+        "y shape          :",
+        y.shape
+    )
+
+    print(
+        "Video IDs        :",
+        video_ids.shape
+    )
+
+    print(
+        "Unique Videos    :",
+        len(np.unique(video_ids))
+    )
+
+    print(
+        "Real sequences   :",
+        np.sum(y == 0)
+    )
+
+    print(
+        "Fake sequences   :",
+        np.sum(y == 1)
+    )
+
+    print("==============================")
+
+    # ========================================================
+    # Safety Checks
+    # ========================================================
+
+    if len(X) == 0:
+
+        raise RuntimeError(
+            "Dataset is empty."
+        )
+
+    if X.ndim != 3:
+
+        raise RuntimeError(
+            f"Expected X to have 3 dimensions, "
+            f"got {X.ndim}"
+        )
+
+    if X.shape[1:] != (
+        SEQUENCE_LENGTH,
+        FEATURE_SIZE
+    ):
+
+        raise RuntimeError(
+            f"Unexpected X shape: {X.shape}"
+        )
+
+    if len(X) != len(y):
+
+        raise RuntimeError(
+            "X and y length mismatch."
+        )
+
+    if len(X) != len(video_ids):
+
+        raise RuntimeError(
+            "X and video_ids length mismatch."
+        )
+
+    if np.isnan(X).any():
+
+        raise RuntimeError(
+            "Dataset contains NaN values."
+        )
+
+    if np.isinf(X).any():
+
+        raise RuntimeError(
+            "Dataset contains infinite values."
+        )
+
+    unique_labels = np.unique(y)
+
+    if len(unique_labels) != 2:
+
+        raise RuntimeError(
+            f"Expected both classes, "
+            f"got labels: {unique_labels}"
+        )
+
+    print(
+        "Dataset validation : PASSED"
+    )
+
+    print("==============================")
+
+    return (
+        X,
+        y,
+        video_ids
+    )
+
+
+# ============================================================
+# Entry Point
+# ============================================================
 
 if __name__ == "__main__":
-    main()
+
+    X, y, video_ids = build_dataset()
+
+    print(
+        "\nDataset builder completed successfully."
+    )
+
+    output_folder = Path(
+        "outputs/dataset"
+    )
+
+    output_folder.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    output_file = (
+        output_folder /
+        "dataset.npz"
+    )
+
+    np.savez_compressed(
+        output_file,
+        X=X,
+        y=y,
+        video_ids=video_ids
+    )
+
+    print(
+        f"Dataset saved to: {output_file}"
+    )
