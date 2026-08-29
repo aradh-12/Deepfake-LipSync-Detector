@@ -1,7 +1,19 @@
+import json
+from pathlib import Path
+
 import numpy as np
 import tensorflow as tf
 
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    balanced_accuracy_score,
+    confusion_matrix,
+    roc_auc_score,
+)
+
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -9,68 +21,172 @@ from sklearn.metrics import (
     f1_score
 )
 
-from training.dataset_builder import build_dataset
+
+MODEL_PATH = Path(
+    "models/deepfake_lipsync_lstm.keras"
+)
+
+SCALER_PATH = Path(
+    "models/deepfake_lipsync_feature_scaler.npz"
+)
+
+VALIDATION_PATH = Path(
+    "outputs/dataset/validation.npz"
+)
+
+THRESHOLD_PATH = Path(
+    "models/threshold.json"
+)
+
+FEATURE_SIZE = 173
 
 
-MODEL_PATH = "models/deepfake_lipsync_lstm.keras"
+def load_scaler():
 
-RANDOM_STATE = 42
+    data = np.load(SCALER_PATH)
+
+    mean = data["mean"].astype(np.float32)
+    scale = data["scale"].astype(np.float32)
+
+    safe_scale = np.where(
+        np.abs(scale) < 1e-12,
+        1.0,
+        scale
+    )
+
+    return mean, safe_scale
+
+
+def scale_validation_features(X):
+
+    mean, scale = load_scaler()
+
+    original_shape = X.shape
+
+    X_flat = X.reshape(
+        -1,
+        FEATURE_SIZE
+    )
+
+    X_flat = (
+        X_flat - mean
+    ) / scale
+
+    return X_flat.reshape(
+        original_shape
+    ).astype(np.float32)
+
+
+def aggregate_by_video(
+    probabilities,
+    labels,
+    video_ids
+):
+
+    unique_videos = np.unique(
+        video_ids
+    )
+
+    video_probabilities = []
+    video_labels = []
+
+    for video in unique_videos:
+
+        mask = (
+            video_ids == video
+        )
+
+        video_probs = probabilities[mask]
+        video_y = labels[mask]
+
+        # Every sequence from one video
+        # must have the same label.
+        if len(np.unique(video_y)) != 1:
+
+            raise ValueError(
+                f"Inconsistent labels for video: {video}"
+            )
+
+        # IMPORTANT:
+        # This matches inference/predict_video.py
+        # where sequence probabilities are averaged.
+        video_probability = float(
+            np.mean(video_probs)
+        )
+
+        video_probabilities.append(
+            video_probability
+        )
+
+        video_labels.append(
+            int(video_y[0])
+        )
+
+    return (
+        np.asarray(video_probabilities),
+        np.asarray(video_labels)
+    )
 
 
 def main():
 
-    print("\nLoading dataset...\n")
-
-    X, y, video_ids = build_dataset()
-
-    # ==================================================
-    # Recreate the SAME train / validation / test split
-    # ==================================================
-
-    splitter = GroupShuffleSplit(
-        n_splits=1,
-        test_size=0.30,
-        random_state=RANDOM_STATE
-    )
-
-    train_indices, temp_indices = next(
-        splitter.split(
-            X,
-            y,
-            groups=video_ids
-        )
-    )
-
-    X_temp = X[temp_indices]
-    y_temp = y[temp_indices]
-    temp_videos = video_ids[temp_indices]
-
-    splitter_val_test = GroupShuffleSplit(
-        n_splits=1,
-        test_size=0.50,
-        random_state=RANDOM_STATE
-    )
-
-    val_indices, test_indices = next(
-        splitter_val_test.split(
-            X_temp,
-            y_temp,
-            groups=temp_videos
-        )
-    )
-
-    X_val = X_temp[val_indices]
-    y_val = y_temp[val_indices]
-
     print("\n==============================")
-    print("Validation Dataset")
+    print("Validation Threshold Analysis")
     print("==============================")
 
-    print("X_val shape :", X_val.shape)
-    print("y_val shape :", y_val.shape)
+    # ==================================================
+    # Load validation dataset
+    # ==================================================
 
-    print("Real :", np.sum(y_val == 0))
-    print("Fake :", np.sum(y_val == 1))
+    print("\nLoading saved validation dataset...")
+
+    data = np.load(
+        VALIDATION_PATH,
+        allow_pickle=True
+    )
+
+    X_val = data["X"]
+    y_val = data["y"]
+    video_ids = data["video_ids"]
+
+    print(
+        "X_val shape       :",
+        X_val.shape
+    )
+
+    print(
+        "y_val shape       :",
+        y_val.shape
+    )
+
+    print(
+        "Validation videos :",
+        len(np.unique(video_ids))
+    )
+
+    print(
+        "Real sequences    :",
+        np.sum(y_val == 0)
+    )
+
+    print(
+        "Fake sequences    :",
+        np.sum(y_val == 1)
+    )
+
+    # ==================================================
+    # Scale using training scaler
+    # ==================================================
+
+    print("\nLoading training scaler...")
+
+    X_val = scale_validation_features(
+        X_val
+    )
+
+    print(
+        "Validation features scaled using training statistics."
+    )
 
     # ==================================================
     # Load model
@@ -82,17 +198,59 @@ def main():
         MODEL_PATH
     )
 
-    print("Model loaded successfully.")
+    print(
+        "Model loaded successfully."
+    )
 
     # ==================================================
-    # Predictions
+    # Sequence predictions
     # ==================================================
 
-    probabilities = (
+    print("\nGenerating validation predictions...")
+
+    sequence_probabilities = (
         model.predict(
             X_val,
             verbose=1
-        ).ravel()
+        ).reshape(-1)
+    )
+
+    sequence_probabilities = np.clip(
+        sequence_probabilities,
+        0.0,
+        1.0
+    )
+
+    # ==================================================
+    # VIDEO-LEVEL AGGREGATION
+    # ==================================================
+
+    (
+        probabilities,
+        labels
+    ) = aggregate_by_video(
+        sequence_probabilities,
+        y_val,
+        video_ids
+    )
+
+    print("\n==============================")
+    print("Video-Level Validation Data")
+    print("==============================")
+
+    print(
+        "Videos        :",
+        len(labels)
+    )
+
+    print(
+        "Real videos   :",
+        np.sum(labels == 0)
+    )
+
+    print(
+        "Fake videos   :",
+        np.sum(labels == 1)
     )
 
     # ==================================================
@@ -100,7 +258,7 @@ def main():
     # ==================================================
 
     print("\n==============================")
-    print("Validation Threshold Analysis")
+    print("Video-Level Threshold Results")
     print("==============================")
 
     print(
@@ -126,24 +284,24 @@ def main():
         ).astype(int)
 
         accuracy = accuracy_score(
-            y_val,
+            labels,
             predictions
         )
 
         precision = precision_score(
-            y_val,
+            labels,
             predictions,
             zero_division=0
         )
 
         recall = recall_score(
-            y_val,
+            labels,
             predictions,
             zero_division=0
         )
 
         f1 = f1_score(
-            y_val,
+            labels,
             predictions,
             zero_division=0
         )
@@ -167,7 +325,7 @@ def main():
         )
 
     # ==================================================
-    # Best threshold based on validation F1
+    # Best threshold
     # ==================================================
 
     best_result = max(
@@ -184,7 +342,7 @@ def main():
     ) = best_result
 
     print("\n==============================")
-    print("Best Validation Threshold")
+    print("BEST VIDEO-LEVEL THRESHOLD")
     print("==============================")
 
     print(
@@ -207,9 +365,49 @@ def main():
         f"F1 Score  : {best_f1:.4f}"
     )
 
-    print("\n==============================")
-    print("Validation Threshold Analysis Complete")
-    print("==============================")
+    # ==================================================
+    # Save threshold
+    # ==================================================
+
+    THRESHOLD_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    with open(
+        THRESHOLD_PATH,
+        "w"
+    ) as f:
+
+        json.dump(
+            {
+                "threshold": float(
+                    best_threshold
+                ),
+                "selection_metric": "video_level_f1",
+                "validation_videos": int(
+                    len(labels)
+                )
+            },
+            f,
+            indent=2
+        )
+
+    print(
+        f"\nThreshold saved to: {THRESHOLD_PATH}"
+    )
+
+    print(
+        "\n=============================="
+    )
+
+    print(
+        "Validation Threshold Analysis Complete"
+    )
+
+    print(
+        "=============================="
+    )
 
 
 if __name__ == "__main__":

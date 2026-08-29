@@ -3,20 +3,16 @@ import mediapipe as mp
 import csv
 from pathlib import Path
 
-from utils.multidataset_manager import get_fakeavceleb_unseen
+from utils.multidataset_manager import get_fakeavceleb_development
 
 
 # ============================================================
 # PATHS
 # ============================================================
 
-INPUT_ROOT = Path(
-    "outputs/extracted_frames"
-)
+INPUT_ROOT = Path("outputs/extracted_frames")
 
-CSV_OUTPUT = Path(
-    "outputs/lip_coordinates"
-)
+CSV_OUTPUT = Path("outputs/lip_coordinates")
 
 
 # ============================================================
@@ -41,6 +37,7 @@ LIP_LANDMARKS = [
     13, 312, 311, 310, 415
 ]
 
+assert len(LIP_LANDMARKS) == 40
 # Safety check
 assert len(LIP_LANDMARKS) == 40
 
@@ -54,13 +51,6 @@ def process_frame(
     input_image,
     csv_output
 ):
-    """
-    Detect the face and extract exactly 40 lip landmarks.
-
-    Returns:
-        True  -> landmarks successfully extracted
-        False -> face/landmarks could not be detected
-    """
 
     image = cv2.imread(
         str(input_image)
@@ -74,26 +64,17 @@ def process_frame(
         cv2.COLOR_BGR2RGB
     )
 
-    results = face_mesh.process(
-        rgb
-    )
+    results = face_mesh.process(rgb)
 
     if not results.multi_face_landmarks:
         return False
 
     h, w, _ = image.shape
 
-    # --------------------------------------------------------
-    # Use only the first detected face
-    # --------------------------------------------------------
-
+    # Only first detected face
     face = results.multi_face_landmarks[0]
 
     coordinates = []
-
-    # --------------------------------------------------------
-    # Extract 40 lip landmarks
-    # --------------------------------------------------------
 
     for idx in LIP_LANDMARKS:
 
@@ -106,25 +87,14 @@ def process_frame(
             [idx, x, y]
         )
 
-    # --------------------------------------------------------
-    # Safety check
-    # --------------------------------------------------------
-
+    # Must contain exactly 40 landmarks
     if len(coordinates) != 40:
         return False
-
-    # --------------------------------------------------------
-    # Create output directory
-    # --------------------------------------------------------
 
     csv_output.parent.mkdir(
         parents=True,
         exist_ok=True
     )
-
-    # --------------------------------------------------------
-    # Save coordinates
-    # --------------------------------------------------------
 
     with open(
         csv_output,
@@ -135,11 +105,7 @@ def process_frame(
         writer = csv.writer(file)
 
         writer.writerow(
-            [
-                "Landmark",
-                "X",
-                "Y"
-            ]
+            ["Landmark", "X", "Y"]
         )
 
         writer.writerows(
@@ -150,39 +116,33 @@ def process_frame(
 
 
 # ============================================================
-# PROCESS UNSEEN DATASET
+# PROCESS DEVELOPMENT DATASET
 # ============================================================
 
-def process_unseen_videos():
+def process_videos():
 
-    dataset = get_fakeavceleb_unseen(
+    dataset = get_fakeavceleb_development(
         real_count=25,
         fake_count=25
     )
 
     print("\n==============================")
-    print("Unseen Lip Extraction")
+    print("Development Lip Extraction")
     print("==============================")
 
     print(
-        "Unseen videos :",
+        "Development videos :",
         len(dataset)
     )
 
     print(
-        "Real videos   :",
-        sum(
-            label == 0
-            for _, label in dataset
-        )
+        "Real videos        :",
+        sum(label == 0 for _, label in dataset)
     )
 
     print(
-        "Fake videos   :",
-        sum(
-            label == 1
-            for _, label in dataset
-        )
+        "Fake videos        :",
+        sum(label == 1 for _, label in dataset)
     )
 
     print("==============================")
@@ -190,25 +150,12 @@ def process_unseen_videos():
     total_frames = 0
     total_detected = 0
 
-    # ========================================================
-    # Initialize MediaPipe Face Mesh
-    # ========================================================
-
     with mp_face_mesh.FaceMesh(
-
         static_image_mode=True,
-
         max_num_faces=1,
-
         refine_landmarks=True,
-
         min_detection_confidence=0.5
-
     ) as face_mesh:
-
-        # ====================================================
-        # Process every unseen video
-        # ====================================================
 
         for index, (video, label) in enumerate(
             dataset,
@@ -248,9 +195,9 @@ def process_unseen_videos():
                 f"Label : {label_name}"
             )
 
-            # =================================================
-            # Check input frame folder
-            # =================================================
+            # ------------------------------------------
+            # Check input frames
+            # ------------------------------------------
 
             if not input_folder.exists():
 
@@ -259,10 +206,6 @@ def process_unseen_videos():
                 )
 
                 continue
-
-            # =================================================
-            # Find frames
-            # =================================================
 
             frames = sorted(
                 input_folder.glob("*.jpg")
@@ -276,19 +219,16 @@ def process_unseen_videos():
 
                 continue
 
-            # =================================================
-            # Prepare output folder
-            # =================================================
+            # ------------------------------------------
+            # Rebuild landmark output
+            # ------------------------------------------
 
             output_folder.mkdir(
                 parents=True,
                 exist_ok=True
             )
 
-            # -------------------------------------------------
             # Remove old CSV files
-            # -------------------------------------------------
-
             for old_file in output_folder.glob(
                 "*.csv"
             ):
@@ -297,17 +237,15 @@ def process_unseen_videos():
 
             detected = 0
 
-            # =================================================
-            # Process every frame
-            # =================================================
+            # ------------------------------------------
+            # Process frames
+            # ------------------------------------------
 
             for frame in frames:
 
                 csv_output = (
                     output_folder /
-                    frame.with_suffix(
-                        ".csv"
-                    ).name
+                    frame.with_suffix(".csv").name
                 )
 
                 success = process_frame(
@@ -317,20 +255,10 @@ def process_unseen_videos():
                 )
 
                 if success:
-
                     detected += 1
 
-            # =================================================
-            # Update statistics
-            # =================================================
-
             total_frames += len(frames)
-
             total_detected += detected
-
-            # =================================================
-            # Video statistics
-            # =================================================
 
             print(
                 f"Frames : {len(frames)}"
@@ -340,12 +268,8 @@ def process_unseen_videos():
                 f"Lips   : {detected}"
             )
 
-    # ========================================================
-    # Final Summary
-    # ========================================================
-
     print("\n==============================")
-    print("Unseen Lip Extraction Complete")
+    print("Development Lip Extraction Complete")
     print("==============================")
 
     print(
@@ -363,22 +287,6 @@ def process_unseen_videos():
         total_detected
     )
 
-    # --------------------------------------------------------
-    # Detection percentage
-    # --------------------------------------------------------
-
-    if total_frames > 0:
-
-        detection_rate = (
-            total_detected /
-            total_frames
-        ) * 100
-
-        print(
-            f"Detection rate   : "
-            f"{detection_rate:.2f}%"
-        )
-
     print("==============================")
 
 
@@ -388,4 +296,4 @@ def process_unseen_videos():
 
 if __name__ == "__main__":
 
-    process_unseen_videos()
+    process_videos()

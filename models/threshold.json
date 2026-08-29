@@ -1,0 +1,5 @@
+{
+  "threshold": 0.1,
+  "selection_metric": "video_level_f1",
+  "validation_videos": 18
+}

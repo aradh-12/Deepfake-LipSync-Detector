@@ -1,9 +1,9 @@
 import os
 import json
+
 import numpy as np
 import tensorflow as tf
 
-from sklearn.model_selection import GroupShuffleSplit
 from sklearn.utils.class_weight import compute_class_weight
 from sklearn.preprocessing import StandardScaler
 
@@ -20,15 +20,13 @@ FEATURE_SIZE = 173
 
 RANDOM_STATE = 42
 
-TRAIN_VIDEO_RATIO = 0.70
-VALIDATION_VIDEO_RATIO = 0.15
-TEST_VIDEO_RATIO = 0.15
-
 EPOCHS = 50
 BATCH_SIZE = 16
 
-MODEL_PATH = "models/deepfake_lipsync_lstm.keras"
-SCALER_PATH = "models/deepfake_lipsync_feature_scaler.npz"
+MODEL_PATH = "models/deepfake_lipsync_lstm_exp3.keras"
+SCALER_PATH = "models/deepfake_lipsync_feature_scaler_exp3.npz"
+
+DATASET_DIR = "outputs/dataset"
 
 
 # ============================================================
@@ -72,94 +70,6 @@ def get_video_level_data(y, video_ids):
 
 
 # ============================================================
-# Helper: Create a valid group split
-# ============================================================
-
-def create_group_split(
-    X,
-    y,
-    video_ids,
-    test_size,
-    random_state_start
-):
-    """
-    Create a group-level split.
-
-    Important:
-    Sequences from the same video are never allowed
-    to appear in different splits.
-
-    Both Real and Fake classes must be present
-    in both resulting groups.
-    """
-
-    unique_videos, video_labels = get_video_level_data(
-        y,
-        video_ids
-    )
-
-    for attempt in range(100):
-
-        random_state = (
-            random_state_start + attempt
-        )
-
-        splitter = GroupShuffleSplit(
-            n_splits=1,
-            test_size=test_size,
-            random_state=random_state
-        )
-
-        train_indices, test_indices = next(
-            splitter.split(
-                X,
-                y,
-                groups=video_ids
-            )
-        )
-
-        train_videos = np.unique(
-            video_ids[train_indices]
-        )
-
-        test_videos = np.unique(
-            video_ids[test_indices]
-        )
-
-        train_video_labels = np.array([
-            video_labels[
-                unique_videos == video
-            ][0]
-            for video in train_videos
-        ])
-
-        test_video_labels = np.array([
-            video_labels[
-                unique_videos == video
-            ][0]
-            for video in test_videos
-        ])
-
-        # Make sure both classes exist
-        # in both groups.
-        if (
-            len(np.unique(train_video_labels)) == 2
-            and
-            len(np.unique(test_video_labels)) == 2
-        ):
-
-            return (
-                train_indices,
-                test_indices
-            )
-
-    raise RuntimeError(
-        "Could not create a group split containing "
-        "both Real and Fake videos."
-    )
-
-
-# ============================================================
 # Helper: Print split information
 # ============================================================
 
@@ -170,9 +80,7 @@ def print_split_info(
     video_ids_split
 ):
 
-    videos = np.unique(
-        video_ids_split
-    )
+    videos = np.unique(video_ids_split)
 
     print(f"\n{name}")
     print("-" * 40)
@@ -211,7 +119,7 @@ def scale_features(
     Standardize all 173 multimodal features.
 
     IMPORTANT:
-    The scaler is fitted ONLY on the training data.
+    The scaler is fitted ONLY on training data.
 
     Validation and test data are transformed using
     statistics learned from the training data.
@@ -230,7 +138,7 @@ def scale_features(
     test_shape = X_test.shape
 
     # Expected:
-
+    #
     # X_train = (samples, 30, 173)
     # X_val   = (samples, 30, 173)
     # X_test  = (samples, 30, 173)
@@ -332,7 +240,7 @@ def main():
     print("==============================\n")
 
     # --------------------------------------------------------
-    # Load dataset
+    # Load complete dataset
     # --------------------------------------------------------
 
     X, y, video_ids = build_dataset()
@@ -439,32 +347,59 @@ def main():
     # STEP 1
     # Load precomputed video-level dataset split
     # ========================================================
-    #
-    # The split was already created and validated by:
-    #
-    #     python -m training.dataset_split
-    #
-    # Do NOT split the dataset again here.
-    # ========================================================
-
-    DATASET_DIR = "outputs/dataset"
 
     print("\n==============================")
     print("Loading Precomputed Dataset Split")
     print("==============================")
 
+    train_path = os.path.join(
+        DATASET_DIR,
+        "train.npz"
+    )
+
+    validation_path = os.path.join(
+        DATASET_DIR,
+        "validation.npz"
+    )
+
+    test_path = os.path.join(
+        DATASET_DIR,
+        "test.npz"
+    )
+
+    if not os.path.exists(train_path):
+
+        raise FileNotFoundError(
+            f"Training split not found: {train_path}\n"
+            "Run: python -m training.dataset_split"
+        )
+
+    if not os.path.exists(validation_path):
+
+        raise FileNotFoundError(
+            f"Validation split not found: {validation_path}\n"
+            "Run: python -m training.dataset_split"
+        )
+
+    if not os.path.exists(test_path):
+
+        raise FileNotFoundError(
+            f"Test split not found: {test_path}\n"
+            "Run: python -m training.dataset_split"
+        )
+
     train_data = np.load(
-        f"{DATASET_DIR}/train.npz",
+        train_path,
         allow_pickle=True
     )
 
     val_data = np.load(
-        f"{DATASET_DIR}/validation.npz",
+        validation_path,
         allow_pickle=True
     )
 
     test_data = np.load(
-        f"{DATASET_DIR}/test.npz",
+        test_path,
         allow_pickle=True
     )
 
@@ -480,37 +415,138 @@ def main():
     y_test = test_data["y"]
     test_videos = test_data["video_ids"]
 
-    print("Training set loaded   :", X_train.shape)
-    print("Validation set loaded :", X_val.shape)
-    print("Test set loaded       :", X_test.shape)
+    print(
+        "Training set loaded   :",
+        X_train.shape
+    )
+
+    print(
+        "Validation set loaded :",
+        X_val.shape
+    )
+
+    print(
+        "Test set loaded       :",
+        X_test.shape
+    )
+
+    # ========================================================
+    # STEP 2
+    # Verify split shapes
+    # ========================================================
+
+    for name, X_split, y_split, ids_split in [
+
+        (
+            "Training",
+            X_train,
+            y_train,
+            train_videos
+        ),
+
+        (
+            "Validation",
+            X_val,
+            y_val,
+            val_videos
+        ),
+
+        (
+            "Test",
+            X_test,
+            y_test,
+            test_videos
+        )
+
+    ]:
+
+        if X_split.ndim != 3:
+
+            raise ValueError(
+                f"{name} X must be 3-dimensional. "
+                f"Got {X_split.shape}"
+            )
+
+        if X_split.shape[1] != SEQUENCE_LENGTH:
+
+            raise ValueError(
+                f"{name} sequence length mismatch. "
+                f"Expected {SEQUENCE_LENGTH}, "
+                f"got {X_split.shape[1]}"
+            )
+
+        if X_split.shape[2] != FEATURE_SIZE:
+
+            raise ValueError(
+                f"{name} feature size mismatch. "
+                f"Expected {FEATURE_SIZE}, "
+                f"got {X_split.shape[2]}"
+            )
+
+        if len(X_split) != len(y_split):
+
+            raise ValueError(
+                f"{name}: X and y lengths differ."
+            )
+
+        if len(X_split) != len(ids_split):
+
+            raise ValueError(
+                f"{name}: X and video_ids lengths differ."
+            )
+
+        if np.isnan(X_split).any():
+
+            raise ValueError(
+                f"{name} dataset contains NaN values."
+            )
+
+        if np.isinf(X_split).any():
+
+            raise ValueError(
+                f"{name} dataset contains infinite values."
+            )
 
     # ========================================================
     # Verify NO video leakage
     # ========================================================
 
-    train_video_set = set(train_videos)
-    val_video_set = set(val_videos)
-    test_video_set = set(test_videos)
+    train_video_set = set(
+        train_videos
+    )
+
+    val_video_set = set(
+        val_videos
+    )
+
+    test_video_set = set(
+        test_videos
+    )
 
     if train_video_set & val_video_set:
+
         raise RuntimeError(
             "Data leakage detected between "
             "training and validation videos."
         )
 
     if train_video_set & test_video_set:
+
         raise RuntimeError(
             "Data leakage detected between "
             "training and test videos."
         )
 
     if val_video_set & test_video_set:
+
         raise RuntimeError(
             "Data leakage detected between "
             "validation and test videos."
         )
 
-    print("Data leakage check : PASSED")
+    print(
+        "\nData leakage check : PASSED"
+    )
 
     # ========================================================
     # Print split information
@@ -547,17 +583,26 @@ def main():
 
     print(
         "Train ∩ Validation :",
-        len(train_video_set & val_video_set)
+        len(
+            train_video_set &
+            val_video_set
+        )
     )
 
     print(
         "Train ∩ Test       :",
-        len(train_video_set & test_video_set)
+        len(
+            train_video_set &
+            test_video_set
+        )
     )
 
     print(
         "Validation ∩ Test  :",
-        len(val_video_set & test_video_set)
+        len(
+            val_video_set &
+            test_video_set
+        )
     )
 
     # ========================================================
@@ -575,12 +620,16 @@ def main():
 
     print(
         "Train mean :",
-        float(X_train.mean())
+        float(
+            X_train.mean()
+        )
     )
 
     print(
         "Train std  :",
-        float(X_train.std())
+        float(
+            X_train.std()
+        )
     )
 
     # --------------------------------------------------------
@@ -603,27 +652,33 @@ def main():
 
     print(
         "Train mean :",
-        float(X_train.mean())
+        float(
+            X_train.mean()
+        )
     )
 
     print(
         "Train std  :",
-        float(X_train.std())
+        float(
+            X_train.std()
+        )
     )
 
     print(
-        "Training features normalized   : ✅"
+        "Training features normalized   : OK"
     )
 
     print(
-        "Validation features transformed : ✅"
+        "Validation features transformed : OK"
     )
 
     print(
-        "Testing features transformed    : ✅"
+        "Testing features transformed    : OK"
     )
 
-    print("==============================")
+    print(
+        "=============================="
+    )
 
     # --------------------------------------------------------
     # Save scaler for future inference
@@ -704,6 +759,7 @@ def main():
             min_lr=1e-6,
             verbose=1
         )
+
     ]
 
     # ========================================================
@@ -735,7 +791,8 @@ def main():
 
         verbose=1
     )
-        # ========================================================
+
+    # ========================================================
     # Save Training History
     # ========================================================
 
@@ -745,7 +802,7 @@ def main():
     )
 
     history_path = (
-        "outputs/training/training_history.json"
+        "outputs/training/training_history_exp3.json"
     )
 
     with open(
@@ -754,14 +811,18 @@ def main():
     ) as f:
 
         json.dump(
+
             {
                 key: [
                     float(value)
                     for value in values
                 ]
-                for key, values in history.history.items()
+                for key, values
+                in history.history.items()
             },
+
             f,
+
             indent=2
         )
 
@@ -775,13 +836,9 @@ def main():
     # Final Test Evaluation
     # ========================================================
 
-
     print("\n==============================")
     print("Final Test Evaluation")
     print("==============================")
-
-    # return_dict=True keeps this compatible with
-    # multiple metrics in the model.
 
     test_results = model.evaluate(
         X_test,
@@ -826,6 +883,11 @@ def main():
     print(
         "Scaler saved to:",
         SCALER_PATH
+    )
+
+    print(
+        "History saved to:",
+        history_path
     )
 
     print("==============================")

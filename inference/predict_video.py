@@ -1,4 +1,5 @@
 import sys
+import json
 import subprocess
 from pathlib import Path
 
@@ -21,32 +22,23 @@ SCALER_PATH = Path(
     "models/deepfake_lipsync_feature_scaler.npz"
 )
 
+THRESHOLD_PATH = Path(
+    "models/threshold.json"
+)
+
 SEQUENCE_LENGTH = 30
 FEATURE_SIZE = 173
 
-# ------------------------------------------------------------
-# IMPORTANT
-#
-# This threshold should match the threshold selected during
-# your threshold-analysis stage.
-# ------------------------------------------------------------
-
-THRESHOLD = 0.56
-
-# Audio configuration
 SAMPLE_RATE = 16000
 N_MFCC = 13
+
+# These must match the training MFCC configuration.
+MFCC_HOP_LENGTH = 512
+MFCC_N_FFT = 2048
 
 
 # ============================================================
 # LIP LANDMARKS
-# ============================================================
-#
-# 40 landmarks × 2 coordinates
-# = 80 lip-coordinate features
-#
-# These must remain identical to the feature extraction
-# pipeline used during training.
 # ============================================================
 
 LIP_LANDMARKS = [
@@ -70,14 +62,6 @@ def load_model():
 
         print(
             f"❌ Model not found: {MODEL_PATH}"
-        )
-
-        print(
-            "\nExpected model:"
-        )
-
-        print(
-            "models/deepfake_lipsync_lstm.keras"
         )
 
         return None
@@ -112,6 +96,36 @@ def load_model():
         f"Output shape : {model.output_shape}"
     )
 
+    # --------------------------------------------------------
+    # Safety validation
+    # --------------------------------------------------------
+
+    expected_input = (
+        SEQUENCE_LENGTH,
+        FEATURE_SIZE
+    )
+
+    actual_input = (
+        model.input_shape[1],
+        model.input_shape[2]
+    )
+
+    if actual_input != expected_input:
+
+        print(
+            "\n❌ Model input shape does not match pipeline."
+        )
+
+        print(
+            f"Expected : (None, {SEQUENCE_LENGTH}, {FEATURE_SIZE})"
+        )
+
+        print(
+            f"Got      : {model.input_shape}"
+        )
+
+        return None
+
     return model
 
 
@@ -125,10 +139,6 @@ def load_scaler():
 
         print(
             f"❌ Scaler not found: {SCALER_PATH}"
-        )
-
-        print(
-            "\nRun training first so that the scaler is created."
         )
 
         return None
@@ -154,10 +164,12 @@ def load_scaler():
 
         return None
 
-    if mean.shape != (FEATURE_SIZE,):
+    if mean.shape != (
+        FEATURE_SIZE,
+    ):
 
         print(
-            "\n❌ Invalid scaler mean shape:"
+            "\n❌ Invalid scaler mean shape."
         )
 
         print(
@@ -170,10 +182,12 @@ def load_scaler():
 
         return None
 
-    if scale.shape != (FEATURE_SIZE,):
+    if scale.shape != (
+        FEATURE_SIZE,
+    ):
 
         print(
-            "\n❌ Invalid scaler scale shape:"
+            "\n❌ Invalid scaler scale shape."
         )
 
         print(
@@ -194,18 +208,117 @@ def load_scaler():
         f"Scaler features : {len(mean)}"
     )
 
-    return mean.astype(
-        np.float32
-    ), scale.astype(
-        np.float32
+    return (
+        mean.astype(np.float32),
+        scale.astype(np.float32)
     )
+
+
+# ============================================================
+# LOAD VALIDATION THRESHOLD
+# ============================================================
+
+def load_threshold():
+
+    if not THRESHOLD_PATH.exists():
+
+        print(
+            f"❌ Threshold file not found: "
+            f"{THRESHOLD_PATH}"
+        )
+
+        print(
+            "Run validation threshold analysis first."
+        )
+
+        return None
+
+    print(
+        "\nLoading validation threshold..."
+    )
+
+    try:
+
+        with open(
+            THRESHOLD_PATH,
+            "r"
+        ) as file:
+
+            data = json.load(
+                file
+            )
+
+    except Exception as error:
+
+        print(
+            f"❌ Could not read threshold file: "
+            f"{error}"
+        )
+
+        return None
+
+    if "threshold" not in data:
+
+        print(
+            "❌ Threshold field missing."
+        )
+
+        return None
+
+    try:
+
+        threshold = float(
+            data["threshold"]
+        )
+
+    except Exception:
+
+        print(
+            "❌ Invalid threshold value."
+        )
+
+        return None
+
+    if not 0.0 <= threshold <= 1.0:
+
+        print(
+            f"❌ Threshold must be between 0 and 1."
+        )
+
+        print(
+            f"Got: {threshold}"
+        )
+
+        return None
+
+    print(
+        f"✅ Threshold loaded: {threshold:.2f}"
+    )
+
+    if "selection_metric" in data:
+
+        print(
+            f"Selection metric : "
+            f"{data['selection_metric']}"
+        )
+
+    if "validation_f1" in data:
+
+        print(
+            f"Validation F1    : "
+            f"{data['validation_f1']}"
+        )
+
+    return threshold
 
 
 # ============================================================
 # EXTRACT AUDIO
 # ============================================================
 
-def extract_audio(video_path):
+def extract_audio(
+    video_path
+):
 
     print(
         "\nExtracting audio..."
@@ -315,7 +428,9 @@ def extract_audio(video_path):
 # EXTRACT MFCC
 # ============================================================
 
-def extract_mfcc(audio):
+def extract_mfcc(
+    audio
+):
 
     print(
         "\nExtracting MFCC..."
@@ -330,7 +445,9 @@ def extract_mfcc(audio):
         mfcc = librosa.feature.mfcc(
             y=audio,
             sr=SAMPLE_RATE,
-            n_mfcc=N_MFCC
+            n_mfcc=N_MFCC,
+            n_fft=MFCC_N_FFT,
+            hop_length=MFCC_HOP_LENGTH
         )
 
     except Exception as error:
@@ -361,20 +478,69 @@ def extract_mfcc(audio):
 
         return None
 
+    # ========================================================
+    # MFCC NORMALIZATION
+    #
+    # This matches the training-side MFCC normalization.
+    # Each coefficient is normalized independently.
+    # ========================================================
+
+    mfcc_mean = np.mean(
+        mfcc,
+        axis=1,
+        keepdims=True
+    )
+
+    mfcc_std = np.std(
+        mfcc,
+        axis=1,
+        keepdims=True
+    )
+
+    mfcc_std = np.where(
+        mfcc_std < 1e-8,
+        1.0,
+        mfcc_std
+    )
+
+    mfcc = (
+        mfcc
+        -
+        mfcc_mean
+    ) / mfcc_std
+
+    mfcc = mfcc.astype(
+        np.float32
+    )
+
+    if not np.isfinite(
+        mfcc
+    ).all():
+
+        print(
+            "❌ MFCC contains NaN or Inf."
+        )
+
+        return None
+
     print(
         f"MFCC shape : {mfcc.shape}"
     )
 
-    return mfcc.astype(
-        np.float32
+    print(
+        "MFCC normalization : ✅"
     )
+
+    return mfcc
 
 
 # ============================================================
 # OPEN VIDEO
 # ============================================================
 
-def open_video(video_path):
+def open_video(
+    video_path
+):
 
     cap = cv2.VideoCapture(
         str(video_path)
@@ -383,7 +549,8 @@ def open_video(video_path):
     if not cap.isOpened():
 
         print(
-            f"❌ Unable to open video: {video_path}"
+            f"❌ Unable to open video: "
+            f"{video_path}"
         )
 
         return None
@@ -406,12 +573,6 @@ def normalize_lip_coordinates(
 
     Output:
         (40, 2)
-
-    The normalization is performed relative to the
-    bounding box of the detected lip landmarks.
-
-    This makes the feature representation less dependent
-    on absolute image position and image dimensions.
     """
 
     coordinates = coordinates.astype(
@@ -426,8 +587,17 @@ def normalize_lip_coordinates(
         axis=0
     )
 
-    width = max_xy[0] - min_xy[0]
-    height = max_xy[1] - min_xy[1]
+    width = (
+        max_xy[0]
+        -
+        min_xy[0]
+    )
+
+    height = (
+        max_xy[1]
+        -
+        min_xy[1]
+    )
 
     if width < 1e-6:
 
@@ -440,11 +610,15 @@ def normalize_lip_coordinates(
     normalized = coordinates.copy()
 
     normalized[:, 0] = (
-        normalized[:, 0] - min_xy[0]
+        normalized[:, 0]
+        -
+        min_xy[0]
     ) / width
 
     normalized[:, 1] = (
-        normalized[:, 1] - min_xy[1]
+        normalized[:, 1]
+        -
+        min_xy[1]
     ) / height
 
     return normalized.astype(
@@ -460,12 +634,21 @@ def extract_lip_features(
     cap,
     face_mesh
 ):
+    """
+    Extract one lip feature vector for EVERY original
+    video frame.
+
+    Missing MediaPipe detections are interpolated.
+
+    This preserves the original temporal video timeline.
+
+    Output:
+        (total_video_frames, 80)
+    """
 
     print(
         "\nExtracting lip landmarks..."
     )
-
-    lip_features = []
 
     total_frames = int(
         cap.get(
@@ -489,7 +672,17 @@ def extract_lip_features(
         f"Video FPS    : {fps:.2f}"
     )
 
+    # --------------------------------------------------------
+    # One slot per ORIGINAL video frame.
+    # --------------------------------------------------------
+
+    frame_features = [
+        None
+        for _ in range(total_frames)
+    ]
+
     frame_index = 0
+    detected_count = 0
 
     while True:
 
@@ -508,9 +701,7 @@ def extract_lip_features(
             rgb
         )
 
-        if (
-            not results.multi_face_landmarks
-        ):
+        if not results.multi_face_landmarks:
 
             frame_index += 1
 
@@ -526,12 +717,11 @@ def extract_lip_features(
 
             point = face.landmark[idx]
 
-            # MediaPipe normalized coordinates.
-            x = float(point.x)
-            y = float(point.y)
-
             coordinates.append(
-                [x, y]
+                [
+                    float(point.x),
+                    float(point.y)
+                ]
             )
 
         coordinates = np.asarray(
@@ -543,11 +733,6 @@ def extract_lip_features(
             40,
             2
         ):
-
-            print(
-                "❌ Wrong coordinate shape:",
-                coordinates.shape
-            )
 
             frame_index += 1
 
@@ -571,27 +756,41 @@ def extract_lip_features(
             80,
         ):
 
-            print(
-                "❌ Wrong lip feature shape:",
-                lip_vector.shape
-            )
-
             frame_index += 1
 
             continue
 
-        lip_features.append(
-            lip_vector
-        )
+        if frame_index < total_frames:
+
+            frame_features[
+                frame_index
+            ] = lip_vector
+
+            detected_count += 1
 
         frame_index += 1
 
+    # ========================================================
+    # DETECTION STATISTICS
+    # ========================================================
+
     print(
         f"Lip frames detected : "
-        f"{len(lip_features)}"
+        f"{detected_count}"
     )
 
-    if len(lip_features) == 0:
+    missing_count = (
+        total_frames
+        -
+        detected_count
+    )
+
+    print(
+        f"Lip frames missing  : "
+        f"{missing_count}"
+    )
+
+    if detected_count == 0:
 
         print(
             "❌ No lip features detected."
@@ -605,18 +804,137 @@ def extract_lip_features(
             fps
         )
 
-    lip_features = np.asarray(
-        lip_features,
+    # ========================================================
+    # CREATE ARRAY
+    # ========================================================
+
+    features = np.full(
+        (
+            total_frames,
+            80
+        ),
+        np.nan,
         dtype=np.float32
+    )
+
+    for i, feature in enumerate(
+        frame_features
+    ):
+
+        if feature is not None:
+
+            features[i] = feature
+
+    # ========================================================
+    # FIND VALID FRAMES
+    # ========================================================
+
+    valid_indices = np.where(
+        np.isfinite(
+            features
+        ).all(
+            axis=1
+        )
+    )[0]
+
+    if len(valid_indices) == 0:
+
+        print(
+            "❌ No valid lip features available."
+        )
+
+        return (
+            np.empty(
+                (0, 80),
+                dtype=np.float32
+            ),
+            fps
+        )
+
+    # ========================================================
+    # INTERPOLATE MISSING FRAMES
+    # ========================================================
+
+    print(
+        "\nInterpolating missing lip frames..."
+    )
+
+    all_indices = np.arange(
+        total_frames
+    )
+
+    for feature_index in range(
+        80
+    ):
+
+        values = features[
+            valid_indices,
+            feature_index
+        ]
+
+        features[
+            :,
+            feature_index
+        ] = np.interp(
+            all_indices,
+            valid_indices,
+            values
+        )
+
+    features = features.astype(
+        np.float32
+    )
+
+    # ========================================================
+    # VALIDATION
+    # ========================================================
+
+    if features.shape != (
+        total_frames,
+        80
+    ):
+
+        print(
+            "❌ Wrong final lip feature shape:",
+            features.shape
+        )
+
+        return (
+            np.empty(
+                (0, 80),
+                dtype=np.float32
+            ),
+            fps
+        )
+
+    if not np.isfinite(
+        features
+    ).all():
+
+        print(
+            "❌ Lip features contain NaN or Inf."
+        )
+
+        return (
+            np.empty(
+                (0, 80),
+                dtype=np.float32
+            ),
+            fps
+        )
+
+    print(
+        f"Lip frames after interpolation : "
+        f"{len(features)}"
     )
 
     print(
         f"Lip feature shape : "
-        f"{lip_features.shape}"
+        f"{features.shape}"
     )
 
     return (
-        lip_features,
+        features,
         fps
     )
 
@@ -662,10 +980,11 @@ def compute_lip_velocity(
 
 def synchronize_features(
     lip_features,
-    mfcc
+    mfcc,
+    fps
 ):
     """
-    Create the final 173-dimensional feature representation.
+    Create final 173-dimensional features.
 
     80 lip coordinates
     +
@@ -674,6 +993,8 @@ def synchronize_features(
     13 MFCC
     =
     173 features
+
+    Audio/video synchronization is timestamp based.
     """
 
     if lip_features is None:
@@ -688,6 +1009,14 @@ def synchronize_features(
 
         print(
             "❌ MFCC data is missing."
+        )
+
+        return None
+
+    if fps <= 0:
+
+        print(
+            f"❌ Invalid FPS: {fps}"
         )
 
         return None
@@ -719,40 +1048,121 @@ def synchronize_features(
     )
 
     print(
-        f"Lip frames  : {total_video_frames}"
+        f"Lip frames   : "
+        f"{total_video_frames}"
     )
 
     print(
-        f"MFCC frames  : {total_mfcc_frames}"
+        f"MFCC frames  : "
+        f"{total_mfcc_frames}"
     )
 
-    # --------------------------------------------------------
-    # Map MFCC frames to video frames.
-    #
-    # This matches the synchronization strategy used in
-    # the existing inference pipeline.
-    # --------------------------------------------------------
+    print(
+        f"Video FPS    : "
+        f"{fps:.4f}"
+    )
 
-    if total_video_frames == 1:
+    # ========================================================
+    # VIDEO TIMESTAMPS
+    # ========================================================
 
-        mfcc_indices = np.array(
-            [0],
-            dtype=np.int32
+    video_times = (
+        np.arange(
+            total_video_frames,
+            dtype=np.float32
+        )
+        / float(fps)
+    )
+
+    # ========================================================
+    # MFCC TIMESTAMPS
+    # ========================================================
+
+    mfcc_times = (
+        (
+            np.arange(
+                total_mfcc_frames,
+                dtype=np.float32
+            )
+            *
+            MFCC_HOP_LENGTH
+            +
+            MFCC_N_FFT / 2
+        )
+        /
+        SAMPLE_RATE
+    )
+
+    # ========================================================
+    # FIND NEAREST MFCC FRAME
+    # ========================================================
+
+    indices = np.searchsorted(
+        mfcc_times,
+        video_times,
+        side="left"
+    )
+
+    indices = np.clip(
+        indices,
+        0,
+        total_mfcc_frames - 1
+    )
+
+    previous_indices = np.maximum(
+        indices - 1,
+        0
+    )
+
+    next_distance = np.abs(
+        mfcc_times[indices]
+        -
+        video_times
+    )
+
+    previous_distance = np.abs(
+        mfcc_times[previous_indices]
+        -
+        video_times
+    )
+
+    use_previous = (
+        previous_distance
+        <=
+        next_distance
+    )
+
+    indices[
+        use_previous
+    ] = previous_indices[
+        use_previous
+    ]
+
+    # ========================================================
+    # ALIGNED MFCC
+    # ========================================================
+
+    aligned_mfcc = (
+        mfcc[:, indices]
+    ).T.astype(
+        np.float32
+    )
+
+    if aligned_mfcc.shape != (
+        total_video_frames,
+        N_MFCC
+    ):
+
+        print(
+            "❌ Wrong aligned MFCC shape:",
+            aligned_mfcc.shape
         )
 
-    else:
+        return None
 
-        mfcc_indices = np.linspace(
-            0,
-            total_mfcc_frames - 1,
-            total_video_frames
-        ).astype(
-            np.int32
-        )
-
-    # --------------------------------------------------------
-    # Lip velocity
-    # --------------------------------------------------------
+    # ========================================================
+    # LIP VELOCITY
+    # ========================================================
 
     lip_velocity = (
         compute_lip_velocity(
@@ -768,11 +1178,11 @@ def synchronize_features(
 
         return None
 
-    synchronized = []
+    # ========================================================
+    # FUSE MODALITIES
+    # ========================================================
 
-    # --------------------------------------------------------
-    # Fuse all modalities
-    # --------------------------------------------------------
+    synchronized = []
 
     for index in range(
         total_video_frames
@@ -789,12 +1199,8 @@ def synchronize_features(
         )
 
         mfcc_vector = (
-            mfcc[
-                :,
-                mfcc_indices[index]
-            ].astype(
-                np.float32
-            )
+            aligned_mfcc[index]
+            .astype(np.float32)
         )
 
         feature_vector = np.concatenate(
@@ -840,9 +1246,9 @@ def synchronize_features(
         f"{synchronized.shape}"
     )
 
-    # --------------------------------------------------------
-    # Final safety validation
-    # --------------------------------------------------------
+    # ========================================================
+    # FINAL VALIDATION
+    # ========================================================
 
     if synchronized.ndim != 2:
 
@@ -864,6 +1270,16 @@ def synchronize_features(
 
         return None
 
+    if not np.isfinite(
+        synchronized
+    ).all():
+
+        print(
+            "❌ Synchronized features contain NaN or Inf."
+        )
+
+        return None
+
     return synchronized
 
 
@@ -876,13 +1292,10 @@ def scale_features(
     scaler
 ):
     """
-    Apply the training scaler to inference features.
+    Apply training scaler.
 
     IMPORTANT:
-    No fitting is performed here.
-
-    The mean and scale were learned only from the
-    training set.
+    No fitting is performed during inference.
     """
 
     if features is None:
@@ -902,7 +1315,7 @@ def scale_features(
     if features.ndim != 2:
 
         print(
-            f"❌ Expected 2D features."
+            "❌ Expected 2D features."
         )
 
         print(
@@ -923,10 +1336,6 @@ def scale_features(
 
         return None
 
-    # --------------------------------------------------------
-    # Avoid division by zero.
-    # --------------------------------------------------------
-
     safe_scale = np.where(
         np.abs(scale) < 1e-12,
         1.0,
@@ -934,25 +1343,21 @@ def scale_features(
     )
 
     scaled = (
-        features - mean
+        features
+        -
+        mean
     ) / safe_scale
 
     scaled = scaled.astype(
         np.float32
     )
 
-    if np.isnan(scaled).any():
+    if not np.isfinite(
+        scaled
+    ).all():
 
         print(
-            "❌ NaN detected after scaling."
-        )
-
-        return None
-
-    if np.isinf(scaled).any():
-
-        print(
-            "❌ Inf detected after scaling."
+            "❌ NaN or Inf detected after scaling."
         )
 
         return None
@@ -970,7 +1375,7 @@ def create_sequences(
     """
     Create non-overlapping 30-frame sequences.
 
-    This matches training/dataset_builder.py.
+    Matches the training pipeline.
     """
 
     if features is None:
@@ -999,23 +1404,16 @@ def create_sequences(
 
     sequences = []
 
-    # --------------------------------------------------------
-    # NON-OVERLAPPING sequences
-    #
-    # 0-29
-    # 30-59
-    # 60-89
-    # ...
-    # --------------------------------------------------------
-
     sequence_count = (
         len(features)
-        // SEQUENCE_LENGTH
+        //
+        SEQUENCE_LENGTH
     )
 
     usable_length = (
         sequence_count
-        * SEQUENCE_LENGTH
+        *
+        SEQUENCE_LENGTH
     )
 
     usable_features = features[
@@ -1057,6 +1455,16 @@ def create_sequences(
         dtype=np.float32
     )
 
+    if not np.isfinite(
+        sequences
+    ).all():
+
+        print(
+            "❌ Sequences contain NaN or Inf."
+        )
+
+        return None
+
     print(
         f"\nSequences shape : "
         f"{sequences.shape}"
@@ -1071,7 +1479,8 @@ def create_sequences(
 
 def predict(
     model,
-    sequences
+    sequences,
+    threshold
 ):
 
     if model is None:
@@ -1102,7 +1511,8 @@ def predict(
     except Exception as error:
 
         print(
-            f"❌ Model prediction failed: {error}"
+            f"❌ Model prediction failed: "
+            f"{error}"
         )
 
         return None
@@ -1124,12 +1534,14 @@ def predict(
     )
 
     real_probability = (
-        1.0 - fake_probability
+        1.0
+        -
+        fake_probability
     )
 
     prediction = (
         "FAKE"
-        if fake_probability >= THRESHOLD
+        if fake_probability >= threshold
         else "REAL"
     )
 
@@ -1153,14 +1565,15 @@ def predict_video(
         video_path
     )
 
-    # --------------------------------------------------------
-    # Validate video
-    # --------------------------------------------------------
+    # ========================================================
+    # VALIDATE VIDEO
+    # ========================================================
 
     if not video_path.exists():
 
         print(
-            f"❌ Video not found: {video_path}"
+            f"❌ Video not found: "
+            f"{video_path}"
         )
 
         return
@@ -1168,7 +1581,8 @@ def predict_video(
     if not video_path.is_file():
 
         print(
-            f"❌ Path is not a file: {video_path}"
+            f"❌ Path is not a file: "
+            f"{video_path}"
         )
 
         return
@@ -1198,7 +1612,7 @@ def predict_video(
     )
 
     # ========================================================
-    # STEP 1 — LOAD MODEL
+    # STEP 1 — MODEL
     # ========================================================
 
     model = load_model()
@@ -1208,7 +1622,7 @@ def predict_video(
         return
 
     # ========================================================
-    # STEP 2 — LOAD SCALER
+    # STEP 2 — SCALER
     # ========================================================
 
     scaler = load_scaler()
@@ -1218,7 +1632,17 @@ def predict_video(
         return
 
     # ========================================================
-    # STEP 3 — EXTRACT AUDIO
+    # STEP 3 — THRESHOLD
+    # ========================================================
+
+    threshold = load_threshold()
+
+    if threshold is None:
+
+        return
+
+    # ========================================================
+    # STEP 4 — AUDIO
     # ========================================================
 
     audio = extract_audio(
@@ -1230,7 +1654,7 @@ def predict_video(
         return
 
     # ========================================================
-    # STEP 4 — MFCC
+    # STEP 5 — MFCC
     # ========================================================
 
     mfcc = extract_mfcc(
@@ -1242,7 +1666,7 @@ def predict_video(
         return
 
     # ========================================================
-    # STEP 5 — OPEN VIDEO
+    # STEP 6 — VIDEO
     # ========================================================
 
     cap = open_video(
@@ -1254,7 +1678,7 @@ def predict_video(
         return
 
     # ========================================================
-    # STEP 6 — MEDIAPIPE FACE MESH
+    # STEP 7 — MEDIAPIPE
     # ========================================================
 
     print(
@@ -1286,7 +1710,8 @@ def predict_video(
     except Exception as error:
 
         print(
-            f"❌ MediaPipe processing failed: {error}"
+            f"❌ MediaPipe processing failed: "
+            f"{error}"
         )
 
         cap.release()
@@ -1296,12 +1721,13 @@ def predict_video(
     cap.release()
 
     # ========================================================
-    # STEP 7 — SYNCHRONIZE FEATURES
+    # STEP 8 — SYNCHRONIZE
     # ========================================================
 
     features = synchronize_features(
         lip_features,
-        mfcc
+        mfcc,
+        fps
     )
 
     if features is None:
@@ -1314,7 +1740,7 @@ def predict_video(
     )
 
     # ========================================================
-    # STEP 8 — SCALE FEATURES
+    # STEP 9 — SCALE
     # ========================================================
 
     features = scale_features(
@@ -1332,7 +1758,7 @@ def predict_video(
     )
 
     # ========================================================
-    # STEP 9 — CREATE 30-FRAME SEQUENCES
+    # STEP 10 — SEQUENCES
     # ========================================================
 
     sequences = create_sequences(
@@ -1344,12 +1770,13 @@ def predict_video(
         return
 
     # ========================================================
-    # STEP 10 — MODEL PREDICTION
+    # STEP 11 — PREDICTION
     # ========================================================
 
     result = predict(
         model,
-        sequences
+        sequences,
+        threshold
     )
 
     if result is None:
@@ -1364,7 +1791,7 @@ def predict_video(
     ) = result
 
     # ========================================================
-    # STEP 11 — RESULT
+    # STEP 12 — RESULT
     # ========================================================
 
     print(
@@ -1411,7 +1838,7 @@ def predict_video(
 
     print(
         f"Threshold          : "
-        f"{THRESHOLD:.2f}"
+        f"{threshold:.2f}"
     )
 
     print(
@@ -1424,7 +1851,7 @@ def predict_video(
     )
 
     # ========================================================
-    # STEP 12 — PER-SEQUENCE RESULTS
+    # STEP 13 — PER-SEQUENCE RESULTS
     # ========================================================
 
     print(
@@ -1438,7 +1865,7 @@ def predict_video(
 
         sequence_prediction = (
             "FAKE"
-            if probability >= THRESHOLD
+            if probability >= threshold
             else "REAL"
         )
 
@@ -1450,18 +1877,19 @@ def predict_video(
         )
 
     # ========================================================
-    # SUMMARY
+    # STEP 14 — SUMMARY
     # ========================================================
 
     fake_sequences = int(
         np.sum(
-            probabilities >= THRESHOLD
+            probabilities >= threshold
         )
     )
 
     real_sequences = (
         len(probabilities)
-        - fake_sequences
+        -
+        fake_sequences
     )
 
     print(
@@ -1517,7 +1945,7 @@ if __name__ == "__main__":
         )
 
         print(
-            'python -m inference.predict_video "test.mp4"'
+            'python -m inference.predict_video "$HOME/Desktop/real.mp4"'
         )
 
         sys.exit(1)

@@ -21,7 +21,6 @@ from utils.multidataset_manager import (
     FA_ROOT,
     get_fakeavceleb_development
 )
-
 # ============================================================
 # Process Unseen Fake Dataset
 # ============================================================

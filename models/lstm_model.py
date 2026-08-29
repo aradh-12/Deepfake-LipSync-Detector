@@ -6,7 +6,7 @@ from tensorflow.keras.layers import (
     LSTM,
     Dense,
     Dropout,
-    BatchNormalization
+    LayerNormalization
 )
 
 
@@ -19,7 +19,7 @@ def build_lstm_model(
     feature_size=FEATURE_SIZE
 ):
     """
-    Regularized LSTM for multimodal lip-sync
+    Robust LSTM model for multimodal lip-sync
     anomaly detection.
 
     Input:
@@ -30,8 +30,9 @@ def build_lstm_model(
         80 lip velocities
         13 MFCC features
 
-    Model V2:
-        Stronger regularization to reduce overfitting.
+    Experiment 3:
+        Smaller model with stronger regularization
+        to improve generalization.
     """
 
     model = Sequential([
@@ -44,20 +45,20 @@ def build_lstm_model(
         ),
 
         LSTM(
-            64,
+            32,
             return_sequences=False,
-            dropout=0.25,
-            recurrent_dropout=0.10
+            dropout=0.30,
+            recurrent_dropout=0.15
         ),
 
-        BatchNormalization(),
+        LayerNormalization(),
 
         Dense(
-            32,
+            16,
             activation="relu"
         ),
 
-        Dropout(0.35),
+        Dropout(0.40),
 
         Dense(
             1,
@@ -68,13 +69,15 @@ def build_lstm_model(
     model.compile(
 
         optimizer=tf.keras.optimizers.Adam(
-            learning_rate=0.0002
+            learning_rate=0.0001
         ),
 
         loss="binary_crossentropy",
 
         metrics=[
-            "accuracy",
+            tf.keras.metrics.BinaryAccuracy(
+                name="accuracy"
+            ),
 
             tf.keras.metrics.Precision(
                 name="precision"
