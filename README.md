@@ -2,34 +2,62 @@
 
 A multimodal deepfake detection system that analyzes the synchronization between **facial lip movements** and **spoken audio** to identify potential deepfake videos.
 
-The project combines **computer vision**, **audio processing**, **multimodal feature fusion**, and a **Temporal LSTM model** to classify videos as:
+The project combines **Computer Vision**, **Audio Processing**, **Multimodal Feature Fusion**, and a **Temporal LSTM Neural Network** to classify videos as:
 
 - ✅ REAL
 - 🚨 FAKE
 
 ---
 
-# 📌 Project Overview
+## 📌 Project Overview
 
 Deepfake videos have become increasingly realistic, making traditional visual-artifact-based detection challenging.
 
-This project focuses on a different approach:
+Instead of relying only on visual artifacts, this project focuses on a multimodal approach:
 
-> **Does the movement of a person's lips correspond to the audio being spoken?**
+> **Do the speaker's lip movements correspond to the spoken audio?**
 
-The system:
+The system analyzes multiple signals:
 
-- Extracts lip movement features from video frames
-- Extracts MFCC-based audio features
-- Combines both modalities
-- Builds a multimodal temporal representation
-- Uses an LSTM neural network for classification
+- 👄 Visual lip movement
+- 🔊 Audio characteristics
+- 🎵 MFCC-based speech features
+- ⏱ Temporal synchronization between audio and video
 
-The final system predicts whether a video is likely **REAL** or **FAKE**.
+These features are combined and processed using an **LSTM-based temporal classification model**.
+
+The final system predicts whether a video is likely:
+
+- **REAL**
+- **FAKE**
 
 ---
 
-# 🧠 Project Architecture
+## 🧠 Key Features
+
+- 🎥 Video-based deepfake detection
+- 👄 Lip landmark extraction using MediaPipe Face Mesh
+- 🔊 Audio feature extraction
+- 🎵 MFCC-based audio analysis using Librosa
+- 🔗 Multimodal audio-visual feature fusion
+- ⏱ Temporal sequence modeling
+- 🧠 LSTM-based classification
+- 📊 Model evaluation pipeline
+- 📈 Threshold and probability analysis
+- 🌐 Streamlit-based user interface
+- 🔌 Backend detection components
+- 🧪 Training and experiment scripts
+- 📁 Modular project architecture
+- 🧩 Multi-dataset management
+- 🧪 Basic project tests
+
+---
+
+# 🏗️ Project Architecture
+
+![Project Architecture](assets/project_architecture.png)
+
+The overall detection pipeline is:
 
 ```text
                     INPUT VIDEO
@@ -40,7 +68,7 @@ The final system predicts whether a video is likely **REAL** or **FAKE**.
               └─────────────────────┘
                          │
                          ▼
-              MediaPipe Face Mesh
+                MediaPipe Face Mesh
                          │
                          ▼
                 Lip Feature Extraction
