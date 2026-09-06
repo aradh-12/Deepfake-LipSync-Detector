@@ -5,6 +5,8 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyc
+
 
 # ============================
 # Virtual Environment
@@ -12,6 +14,8 @@ __pycache__/
 
 .venv/
 venv/
+env/
+
 
 # ============================
 # macOS
@@ -19,17 +23,21 @@ venv/
 
 .DS_Store
 
+
 # ============================
 # VS Code
 # ============================
 
 .vscode/
 
+
 # ============================
 # Environment Variables
 # ============================
 
 .env
+.env.*
+
 
 # ============================
 # Jupyter
@@ -37,12 +45,15 @@ venv/
 
 .ipynb_checkpoints/
 
+
 # ============================
 # Logs / Temporary Files
 # ============================
 
 *.log
 *.tmp
+*.save
+
 
 # ============================
 # Dataset
@@ -50,23 +61,46 @@ venv/
 
 datasets/
 
+
 # ============================
 # Generated Outputs
 # ============================
 
 outputs/
 
+
 # ============================
-# Trained Models
+# Trained Experimental Models
 # ============================
 
 saved_models/
 
-# ============================
-# Python Cache
-# ============================
+models/*baseline*
+models/*previous*
 
-*.pyc
+models/*exp2*
+models/*exp3*
+models/*exp4*
+models/*exp5*
+
+models/lstm_exp5*
+models/lstm_exp6*
+
+models/threshold_historical_*.json
+
+
+# ============================
+# Sample / Temporary Videos
+# ============================
 
 data/sample_videos_fakeav/
-*.save
+
+
+# ============================
+# Backup Files
+# ============================
+
+*_backup.py
+*_previous.py
+*before_ui_changes.py
+*ui_backup.py

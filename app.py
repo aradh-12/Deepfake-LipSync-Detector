@@ -1,11 +1,13 @@
-import re
-import sys
 import tempfile
-import subprocess
 from pathlib import Path
 
-import pandas as pd
+import cv2
 import streamlit as st
+
+from backend.detector import (
+    DeepfakeDetector,
+    VideoValidationError
+)
 
 
 # ============================================================
@@ -20,45 +22,214 @@ st.set_page_config(
 
 
 # ============================================================
+# INITIALIZE DETECTOR
+# ============================================================
+
+detector = DeepfakeDetector()
+
+
+# ============================================================
+# INPUT VALIDATION
+# ============================================================
+
+def validate_video(video_path):
+
+    """
+    Perform basic validation before running
+    the deepfake detection pipeline.
+
+    Returns:
+
+        (True, None)
+
+    when the video is suitable.
+
+        (False, error_message)
+
+    otherwise.
+    """
+
+    video_path = Path(video_path)
+
+
+    # ========================================================
+    # CHECK FILE
+    # ========================================================
+
+    if not video_path.exists():
+
+        return (
+            False,
+            "Video file could not be found."
+        )
+
+
+    if video_path.stat().st_size == 0:
+
+        return (
+            False,
+            "The uploaded video is empty."
+        )
+
+
+    # ========================================================
+    # OPEN VIDEO
+    # ========================================================
+
+    cap = cv2.VideoCapture(
+        str(video_path)
+    )
+
+
+    if not cap.isOpened():
+
+        return (
+            False,
+            "The uploaded video could not be opened."
+        )
+
+
+    # ========================================================
+    # VIDEO PROPERTIES
+    # ========================================================
+
+    frame_count = int(
+
+        cap.get(
+            cv2.CAP_PROP_FRAME_COUNT
+        )
+
+    )
+
+
+    fps = float(
+
+        cap.get(
+            cv2.CAP_PROP_FPS
+        )
+
+    )
+
+
+    duration = (
+
+        frame_count / fps
+
+        if fps > 0
+
+        else 0
+
+    )
+
+
+    cap.release()
+
+
+    # ========================================================
+    # VALIDATE FRAME COUNT
+    # ========================================================
+
+    if frame_count < 30:
+
+        return (
+
+            False,
+
+            "The video is too short. "
+            "At least 30 frames are required."
+
+        )
+
+
+    # ========================================================
+    # VALIDATE DURATION
+    # ========================================================
+
+    if duration < 1.0:
+
+        return (
+
+            False,
+
+            "The video is too short for "
+            "reliable analysis."
+
+        )
+
+
+    return (
+
+        True,
+
+        None
+
+    )
+
+
+# ============================================================
 # CUSTOM STYLING
 # ============================================================
 
 st.markdown(
+
     """
+
     <style>
 
     .main-title {
+
         font-size: 42px;
+
         font-weight: 700;
+
         margin-bottom: 5px;
+
     }
+
 
     .subtitle {
+
         font-size: 18px;
+
         opacity: 0.75;
+
         margin-bottom: 30px;
+
     }
+
 
     .result-box {
+
         padding: 25px;
+
         border-radius: 15px;
-        border: 1px solid rgba(128,128,128,0.25);
+
+        border: 1px solid rgba(
+            128,
+            128,
+            128,
+            0.25
+        );
+
         margin-top: 20px;
+
     }
 
-    .result-title {
-        font-size: 30px;
-        font-weight: 700;
-    }
 
     .small-text {
+
         opacity: 0.7;
+
         font-size: 14px;
+
     }
 
     </style>
+
     """,
+
     unsafe_allow_html=True
+
 )
 
 
@@ -67,18 +238,38 @@ st.markdown(
 # ============================================================
 
 st.markdown(
-    '<div class="main-title">🎭 Multimodal Deepfake Lip-Sync Detector</div>',
+
+    """
+
+    <div class="main-title">
+
+    🎭 Multimodal Deepfake Lip-Sync Detector
+
+    </div>
+
+    """,
+
     unsafe_allow_html=True
+
 )
 
+
 st.markdown(
+
     """
+
     <div class="subtitle">
-    Detect potential deepfake videos by analyzing the synchronization
-    between facial lip movements and spoken audio.
+
+    Detect potential deepfake videos by analyzing
+    facial lip movement and spoken audio using a
+    multimodal temporal deep learning model.
+
     </div>
+
     """,
+
     unsafe_allow_html=True
+
 )
 
 
@@ -88,40 +279,70 @@ st.markdown(
 
 with st.sidebar:
 
-    st.header("⚙️ Detection Pipeline")
+
+    # ========================================================
+    # PIPELINE INFORMATION
+    # ========================================================
+
+    st.header(
+        "⚙️ Detection Pipeline"
+    )
+
 
     st.markdown(
+
         """
+
         **Visual features**
+
         - MediaPipe Face Mesh
-        - 40 lip landmarks
-        - Lip movement velocity
+        - Lip movement representation
+        - **80 visual features**
 
         **Audio features**
-        - MFCC
-        - 13 coefficients
+
+        - MFCC extraction
+        - **39 audio features**
 
         **Multimodal representation**
-        - 80 lip coordinates
-        - 80 velocity features
-        - 13 MFCC features
-        - **173 total features**
+
+        - Audio + visual fusion
+        - **119 total features**
 
         **Temporal model**
-        - 30-frame sequences
+
+        - 150-frame input
         - LSTM classifier
+
         """
+
     )
+
 
     st.divider()
 
+
+    # ========================================================
+    # MODEL THRESHOLD
+    # ========================================================
+
+    detection_threshold = 0.50
+
+
     st.metric(
-        "Detection Threshold",
-        "0.56"
+
+        "Decision Threshold",
+
+        f"{detection_threshold:.2f}"
+
     )
 
+
     st.caption(
-        "Threshold selected using validation-set F1 maximization."
+
+        "Model prediction threshold used "
+        "by the current inference pipeline."
+
     )
 
 
@@ -129,351 +350,653 @@ with st.sidebar:
 # VIDEO UPLOAD
 # ============================================================
 
-st.subheader("📤 Upload Video")
+st.subheader(
+    "📤 Upload Video"
+)
+
 
 uploaded_file = st.file_uploader(
+
     "Choose a video file",
+
     type=[
+
         "mp4",
+
         "mov",
+
         "avi",
+
         "mkv",
+
         "webm"
+
     ],
-    help="Upload a video containing a visible speaking face."
+
+    help=(
+
+        "Upload a video containing a "
+        "clearly visible speaking face."
+
+    )
+
 )
 
 
 # ============================================================
-# MAIN ANALYSIS
+# NO VIDEO UPLOADED
 # ============================================================
 
 if uploaded_file is None:
 
+
     st.info(
-        "Upload a video above to begin deepfake lip-sync analysis."
+
+        "Upload a video above to begin "
+        "multimodal deepfake lip-sync analysis."
+
     )
+
+
+# ============================================================
+# VIDEO UPLOADED
+# ============================================================
 
 else:
 
-    st.subheader("🎥 Uploaded Video")
+
+    # ========================================================
+    # UPLOADED VIDEO
+    # ========================================================
+
+    st.subheader(
+        "🎥 Uploaded Video"
+    )
+
 
     st.video(
         uploaded_file
     )
 
-    st.write(
-        f"**File:** {uploaded_file.name}"
-    )
 
     st.write(
-        f"**Size:** {uploaded_file.size / (1024 * 1024):.2f} MB"
+
+        f"**File:** {uploaded_file.name}"
+
     )
+
+
+    st.write(
+
+        f"**Size:** "
+
+        f"{uploaded_file.size / (1024 * 1024):.2f} MB"
+
+    )
+
 
     st.divider()
 
+
+    # ========================================================
+    # ANALYZE BUTTON
+    # ========================================================
+
     analyze = st.button(
+
         "🔍 Analyze Video",
+
         type="primary",
+
         use_container_width=True
+
     )
+
+
+    # ========================================================
+    # ANALYSIS START
+    # ========================================================
 
     if analyze:
 
+
+        # ====================================================
+        # FILE EXTENSION
+        # ====================================================
+
         suffix = Path(
+
             uploaded_file.name
+
         ).suffix
+
 
         temp_path = None
 
+
         try:
 
-            # ------------------------------------------------
-            # Save uploaded video temporarily
-            # ------------------------------------------------
+
+            # ====================================================
+            # SAVE VIDEO TEMPORARILY
+            # ====================================================
 
             with tempfile.NamedTemporaryFile(
+
                 delete=False,
+
                 suffix=suffix
+
             ) as temp_file:
 
+
                 temp_file.write(
+
                     uploaded_file.getbuffer()
+
                 )
+
 
                 temp_path = Path(
+
                     temp_file.name
+
                 )
 
-            # ------------------------------------------------
-            # Run existing inference pipeline
-            #
-            # IMPORTANT:
-            # We are using inference/predict_video.py
-            # directly instead of duplicating the ML pipeline.
-            # ------------------------------------------------
+
+            # ====================================================
+            # BASIC VIDEO VALIDATION
+            # ====================================================
+
+            valid, validation_error = validate_video(
+
+                temp_path
+
+            )
+
+
+            if not valid:
+
+
+                st.warning(
+
+                    f"⚠️ {validation_error}"
+
+                )
+
+
+                st.info(
+
+                    "Please upload a valid video "
+                    "containing a visible speaking "
+                    "person."
+
+                )
+
+
+                st.stop()
+
+
+            # ====================================================
+            # BACKEND INFERENCE
+            # ====================================================
 
             with st.spinner(
-                "Analyzing video... This may take a little while."
+
+                "Analyzing video... "
+                "Extracting visual and audio features."
+
             ):
 
-                result = subprocess.run(
 
-                    [
-                        sys.executable,
-                        "-m",
-                        "inference.predict_video",
-                        str(temp_path)
-                    ],
+                result = detector.predict(
 
-                    stdout=subprocess.PIPE,
+                    temp_path
 
-                    stderr=subprocess.PIPE,
-
-                    text=True,
-
-                    cwd=Path.cwd()
                 )
 
-            output = result.stdout
-            errors = result.stderr
 
-            # ------------------------------------------------
-            # Handle inference failure
-            # ------------------------------------------------
+            # ====================================================
+            # EXTRACT RESULTS
+            # ====================================================
 
-            if result.returncode != 0:
+            prediction = result[
+
+                "prediction"
+
+            ]
+
+
+            confidence = result[
+
+                "confidence"
+
+            ]
+
+
+            fake_probability = result[
+
+                "fake_probability"
+
+            ]
+
+
+            real_probability = result[
+
+                "real_probability"
+
+            ]
+
+
+            threshold = result[
+
+                "threshold"
+
+            ]
+
+
+            validation = result.get(
+
+                "validation",
+
+                {}
+
+            )
+
+
+            # ====================================================
+            # MAIN RESULT
+            # ====================================================
+
+            if prediction == "FAKE":
+
 
                 st.error(
-                    "❌ Video analysis failed."
+
+                    "🚨 RESULT: POTENTIAL DEEPFAKE"
+
                 )
 
-                with st.expander(
-                    "Show technical output"
-                ):
 
-                    st.code(
-                        output + "\n" + errors
-                    )
+            elif prediction == "REAL":
+
+
+                st.success(
+
+                    "✅ RESULT: LIKELY REAL"
+
+                )
+
 
             else:
 
-                # ============================================
-                # PARSE RESULT
-                # ============================================
 
-                fake_match = re.search(
-                    r"Fake Probability\s+:\s+([0-9.]+)",
-                    output
+                st.warning(
+
+                    "⚠️ Unable to determine prediction."
+
                 )
 
-                real_match = re.search(
-                    r"Real Probability\s+:\s+([0-9.]+)",
-                    output
+
+            # ====================================================
+            # RESULT METRICS
+            # ====================================================
+
+            col1, col2, col3 = st.columns(
+
+                3
+
+            )
+
+
+            # ------------------------------------------------
+            # FAKE PROBABILITY
+            # ------------------------------------------------
+
+            with col1:
+
+
+                st.metric(
+
+                    "Fake Probability",
+
+                    f"{fake_probability * 100:.2f}%"
+
                 )
 
-                prediction_match = re.search(
-                    r"Prediction\s+:\s+(FAKE|REAL)",
-                    output
+
+            # ------------------------------------------------
+            # REAL PROBABILITY
+            # ------------------------------------------------
+
+            with col2:
+
+
+                st.metric(
+
+                    "Real Probability",
+
+                    f"{real_probability * 100:.2f}%"
+
                 )
 
-                sequence_count_match = re.search(
-                    r"Sequences analyzed\s+:\s+(\d+)",
-                    output
+
+            # ------------------------------------------------
+            # MODEL CONFIDENCE
+            # ------------------------------------------------
+
+            with col3:
+
+
+                st.metric(
+
+                    "Model Confidence",
+
+                    f"{confidence:.2f}%"
+
                 )
 
-                threshold_match = re.search(
-                    r"Threshold\s+:\s+([0-9.]+)",
-                    output
+
+            # ====================================================
+            # DECISION THRESHOLD
+            # ====================================================
+
+            st.caption(
+
+                f"Decision threshold: "
+
+                f"{threshold:.2f}"
+
+            )
+
+
+            # ====================================================
+            # DETECTION CONFIDENCE
+            # ====================================================
+
+            st.subheader(
+
+                "📊 Detection Confidence"
+
+            )
+
+
+            # ====================================================
+            # CONFIDENCE VALUE
+            # ====================================================
+
+            confidence_value = max(
+
+                fake_probability,
+
+                real_probability
+
+            )
+
+
+            confidence_value = min(
+
+                max(
+
+                    confidence_value,
+
+                    0.0
+
+                ),
+
+                1.0
+
+            )
+
+
+            # ====================================================
+            # PROGRESS BAR
+            # ====================================================
+
+            st.progress(
+
+                confidence_value
+
+            )
+
+
+            # ====================================================
+            # DISPLAY CONFIDENCE
+            # ====================================================
+
+            st.write(
+
+                f"Prediction confidence: "
+
+                f"**{confidence_value * 100:.2f}%**"
+
+            )
+
+
+            # ====================================================
+            # PIPELINE INFORMATION
+            # ====================================================
+
+            st.subheader(
+
+                "🧠 Analysis Summary"
+
+            )
+
+
+            summary_col1, summary_col2 = st.columns(
+
+                2
+
+            )
+
+
+            # ------------------------------------------------
+            # MODEL INPUT
+            # ------------------------------------------------
+
+            with summary_col1:
+
+
+                st.markdown(
+
+                    """
+
+                    **Multimodal Feature Pipeline**
+
+                    - Visual features: 80
+                    - Audio features: 39
+                    - Total features: 119
+                    - Temporal input: 150 frames
+
+                    """
+
                 )
 
-                fake_probability = (
-                    float(fake_match.group(1))
-                    if fake_match
-                    else None
+
+            # ------------------------------------------------
+            # MODEL
+            # ------------------------------------------------
+
+            with summary_col2:
+
+
+                st.markdown(
+
+                    """
+
+                    **Deep Learning Model**
+
+                    - Architecture: LSTM
+                    - Input shape: `(150, 119)`
+                    - Output: Real / Fake probability
+                    - Analysis: Video-level prediction
+
+                    """
+
                 )
 
-                real_probability = (
-                    float(real_match.group(1))
-                    if real_match
-                    else None
-                )
 
-                prediction = (
-                    prediction_match.group(1)
-                    if prediction_match
-                    else None
-                )
+            # ====================================================
+            # VIDEO VALIDATION DETAILS
+            # ====================================================
 
-                sequence_count = (
-                    int(sequence_count_match.group(1))
-                    if sequence_count_match
-                    else None
-                )
+            if validation:
 
-                threshold = (
-                    float(threshold_match.group(1))
-                    if threshold_match
-                    else 0.56
-                )
-
-                # ============================================
-                # RESULT DISPLAY
-                # ============================================
-
-                if prediction == "FAKE":
-
-                    st.error(
-                        "🚨 RESULT: POTENTIAL DEEPFAKE"
-                    )
-
-                elif prediction == "REAL":
-
-                    st.success(
-                        "✅ RESULT: LIKELY REAL"
-                    )
-
-                else:
-
-                    st.warning(
-                        "⚠️ Unable to determine prediction."
-                    )
-
-                # ============================================
-                # PROBABILITY METRICS
-                # ============================================
-
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-
-                    if fake_probability is not None:
-
-                        st.metric(
-                            "Fake Probability",
-                            f"{fake_probability * 100:.2f}%"
-                        )
-
-                with col2:
-
-                    if real_probability is not None:
-
-                        st.metric(
-                            "Real Probability",
-                            f"{real_probability * 100:.2f}%"
-                        )
-
-                with col3:
-
-                    if sequence_count is not None:
-
-                        st.metric(
-                            "Sequences Analyzed",
-                            sequence_count
-                        )
-
-                st.caption(
-                    f"Decision threshold: {threshold:.2f}"
-                )
-
-                # ============================================
-                # PROBABILITY BAR
-                # ============================================
-
-                if fake_probability is not None:
-
-                    st.subheader(
-                        "📊 Detection Confidence"
-                    )
-
-                    st.progress(
-                        min(
-                            max(
-                                fake_probability,
-                                0.0
-                            ),
-                            1.0
-                        )
-                    )
-
-                    st.write(
-                        f"Fake score: "
-                        f"**{fake_probability * 100:.2f}%**"
-                    )
-
-                # ============================================
-                # SEQUENCE RESULTS
-                # ============================================
-
-                sequence_rows = []
-
-                pattern = re.compile(
-                    r"Sequence\s+(\d+)\s*:\s*"
-                    r"([0-9.]+)\s*"
-                    r"\(([0-9.]+)%\)\s*->\s*"
-                    r"(FAKE|REAL)"
-                )
-
-                for match in pattern.finditer(
-                    output
-                ):
-
-                    sequence_rows.append(
-                        {
-                            "Sequence":
-                                int(match.group(1)),
-
-                            "Fake Probability":
-                                float(match.group(2)),
-
-                            "Confidence":
-                                f"{float(match.group(3)):.2f}%",
-
-                            "Prediction":
-                                match.group(4)
-                        }
-                    )
-
-                if sequence_rows:
-
-                    st.subheader(
-                        "🔬 Sequence-Level Analysis"
-                    )
-
-                    sequence_df = pd.DataFrame(
-                        sequence_rows
-                    )
-
-                    st.dataframe(
-                        sequence_df,
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                # ============================================
-                # TECHNICAL OUTPUT
-                # ============================================
 
                 with st.expander(
-                    "🛠️ Technical Inference Log"
+
+                    "🔍 Video Validation Details"
+
                 ):
 
-                    st.code(
-                        output
+
+                    validation_col1, validation_col2 = (
+
+                        st.columns(
+
+                            2
+
+                        )
+
                     )
+
+
+                    with validation_col1:
+
+
+                        st.write(
+
+                            f"**Duration:** "
+
+                            f"{validation.get('duration', 'N/A')} seconds"
+
+                        )
+
+
+                        st.write(
+
+                            f"**FPS:** "
+
+                            f"{validation.get('fps', 'N/A')}"
+
+                        )
+
+
+                        st.write(
+
+                            f"**Total Frames:** "
+
+                            f"{validation.get('total_frames', 'N/A')}"
+
+                        )
+
+
+                    with validation_col2:
+
+
+                        st.write(
+
+                            f"**Resolution:** "
+
+                            f"{validation.get('frame_width', 'N/A')}"
+
+                            f" × "
+
+                            f"{validation.get('frame_height', 'N/A')}"
+
+                        )
+
+
+                        st.write(
+
+                            f"**Frames Checked:** "
+
+                            f"{validation.get('frames_checked', 'N/A')}"
+
+                        )
+
+
+                        st.write(
+
+                            f"**Face Detection Ratio:** "
+
+                            f"{validation.get('face_detection_ratio', 'N/A')}"
+
+                        )
+
+
+        # ========================================================
+        # FILE ERROR
+        # ========================================================
+
+        except FileNotFoundError as error:
+
+
+            st.error(
+
+                f"❌ File error: {error}"
+
+            )
+
+
+        # ========================================================
+        # VIDEO VALIDATION ERROR
+        # ========================================================
+
+        except VideoValidationError as error:
+
+
+            st.warning(
+
+                f"⚠️ {error}"
+
+            )
+
+
+        # ========================================================
+        # RUNTIME ERROR
+        # ========================================================
+
+        except RuntimeError as error:
+
+
+            st.error(
+
+                f"❌ Video analysis failed: {error}"
+
+            )
+
+
+        # ========================================================
+        # UNEXPECTED ERROR
+        # ========================================================
 
         except Exception as error:
 
+
             st.error(
+
                 f"❌ Unexpected error: {error}"
+
             )
+
+
+        # ========================================================
+        # DELETE TEMPORARY VIDEO
+        # ========================================================
 
         finally:
 
+
             if (
+
                 temp_path is not None
+
                 and temp_path.exists()
+
             ):
+
 
                 temp_path.unlink()
 
@@ -484,7 +1007,11 @@ else:
 
 st.divider()
 
+
 st.caption(
+
     "Multimodal Deepfake Lip-Sync Anomaly Detector • "
-    "Python • MediaPipe • Librosa • TensorFlow LSTM"
+
+    "Python • MediaPipe • Librosa • TensorFlow • LSTM"
+
 )

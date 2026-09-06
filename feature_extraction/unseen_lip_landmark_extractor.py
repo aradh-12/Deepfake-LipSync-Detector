@@ -3,7 +3,7 @@ import mediapipe as mp
 import csv
 from pathlib import Path
 
-from utils.multidataset_manager import get_fakeavceleb_development
+from utils.multidataset_manager import get_fakeavceleb_unseen
 
 
 # ============================================================
@@ -121,13 +121,13 @@ def process_frame(
 
 def process_videos():
 
-    dataset = get_fakeavceleb_development(
-        real_count=25,
-        fake_count=25
-    )
+    dataset = get_fakeavceleb_unseen(
+    real_count=25,
+    fake_count=25
+)
 
     print("\n==============================")
-    print("Development Lip Extraction")
+    print("Unseen Lip Extraction")
     print("==============================")
 
     print(
@@ -269,7 +269,7 @@ def process_videos():
             )
 
     print("\n==============================")
-    print("Development Lip Extraction Complete")
+    print("Unseen Lip Extraction Complete")
     print("==============================")
 
     print(

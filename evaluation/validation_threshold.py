@@ -23,11 +23,11 @@ from sklearn.metrics import (
 
 
 MODEL_PATH = Path(
-    "models/deepfake_lipsync_lstm.keras"
+    "models/deepfake_lipsync_lstm_exp3.keras"
 )
 
 SCALER_PATH = Path(
-    "models/deepfake_lipsync_feature_scaler.npz"
+    "models/deepfake_lipsync_feature_scaler_exp3.npz"
 )
 
 VALIDATION_PATH = Path(

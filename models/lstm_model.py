@@ -11,7 +11,7 @@ from tensorflow.keras.layers import (
 
 
 SEQUENCE_LENGTH = 30
-FEATURE_SIZE = 173
+FEATURE_SIZE = 199
 
 
 def build_lstm_model(

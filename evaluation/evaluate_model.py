@@ -24,11 +24,11 @@ SEQUENCE_LENGTH = 30
 FEATURE_SIZE = 173
 
 MODEL_PATH = (
-    "models/deepfake_lipsync_lstm.keras"
+    "models/deepfake_lipsync_lstm_exp3.keras"
 )
 
 SCALER_PATH = (
-    "models/deepfake_lipsync_feature_scaler.npz"
+    "models/deepfake_lipsync_feature_scaler_exp3.npz"
 )
 
 THRESHOLD_PATH = (
