@@ -899,6 +899,23 @@ Push changes:
 git push origin develop
 ```
 
+# 🌐 Live Demo
+
+The application is deployed and publicly accessible using Streamlit Community Cloud.
+
+🚀 **Live Application:**
+
+👉 [Open Live Application](https://deepfake-lipsync-detector-nmc9rmlqzflrofduzscerh.streamlit.app)
+
+Upload a video and the system will:
+
+1. Extract lip movement features
+2. Extract MFCC audio features
+3. Perform multimodal feature fusion
+4. Construct the temporal sequence
+5. Run the trained LSTM model
+6. Predict whether the video is likely REAL or FAKE
+
 ---
 
 # 📜 License
